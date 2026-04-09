@@ -1,6 +1,22 @@
 [package]
-name = "git-ai-commits"
+name = "git-aicommit"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.94"
+authors = ["Justin Chung <noreply@justinchung.net>"]
+description = "Generate git commit messages from staged diffs using Claude."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/getkono/git-aicommit"
+homepage = "https://github.com/getkono/git-aicommit"
+readme = "README.md"
+keywords = ["git", "commit", "ai", "claude", "cli"]
+categories = ["command-line-utilities", "development-tools"]
+exclude = ["target/", "/.github"]
 
 [dependencies]
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+strip = "symbols"
+panic = "abort"
