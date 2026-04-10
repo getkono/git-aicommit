@@ -1,5 +1,8 @@
 use std::io::Write;
 use std::process::{Command, Stdio};
+use std::time::Duration;
+
+use indicatif::{ProgressBar, ProgressStyle};
 
 fn main() {
     if let Err(e) = run() {
@@ -8,24 +11,47 @@ fn main() {
     }
 }
 
+fn spinner(msg: &str) -> ProgressBar {
+    let pb = ProgressBar::new_spinner();
+    pb.set_style(
+        ProgressStyle::with_template("{spinner:.cyan} {msg}")
+            .unwrap()
+            .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]),
+    );
+    pb.set_message(msg.to_string());
+    pb.enable_steady_tick(Duration::from_millis(80));
+    pb
+}
+
 fn run() -> Result<(), String> {
     // 1. Ensure we're in a git repo.
+    let pb = spinner("checking git repository…");
     let status = Command::new("git")
         .args(["rev-parse", "--is-inside-work-tree"])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
-        .map_err(|e| format!("failed to run git: {e}"))?;
+        .map_err(|e| {
+            pb.finish_and_clear();
+            format!("failed to run git: {e}")
+        })?;
     if !status.success() {
+        pb.finish_and_clear();
         return Err("not inside a git repository".into());
     }
+    pb.finish_with_message("git repository confirmed");
 
     // 2. Grab the staged diff.
+    let pb = spinner("reading staged changes…");
     let diff_out = Command::new("git")
         .args(["diff", "--cached", "--no-color"])
         .output()
-        .map_err(|e| format!("failed to run `git diff --cached`: {e}"))?;
+        .map_err(|e| {
+            pb.finish_and_clear();
+            format!("failed to run `git diff --cached`: {e}")
+        })?;
     if !diff_out.status.success() {
+        pb.finish_and_clear();
         return Err(format!(
             "`git diff --cached` failed: {}",
             String::from_utf8_lossy(&diff_out.stderr)
@@ -33,6 +59,7 @@ fn run() -> Result<(), String> {
     }
     let diff = String::from_utf8_lossy(&diff_out.stdout).to_string();
     if diff.trim().is_empty() {
+        pb.finish_and_clear();
         return Err("no staged changes (did you forget `git add`?)".into());
     }
 
@@ -40,8 +67,18 @@ fn run() -> Result<(), String> {
     let stat_out = Command::new("git")
         .args(["diff", "--cached", "--stat"])
         .output()
-        .map_err(|e| format!("failed to run `git diff --cached --stat`: {e}"))?;
+        .map_err(|e| {
+            pb.finish_and_clear();
+            format!("failed to run `git diff --cached --stat`: {e}")
+        })?;
     let stat = String::from_utf8_lossy(&stat_out.stdout).to_string();
+    pb.finish_with_message(format!(
+        "staged changes ready  ({})",
+        stat.lines()
+            .last()
+            .unwrap_or("")
+            .trim()
+    ));
 
     // 4. Truncate the diff if it's huge, so we don't blow up the prompt.
     const MAX_DIFF_BYTES: usize = 60_000;
@@ -70,26 +107,36 @@ fn run() -> Result<(), String> {
     );
 
     // 5. Run claude in non-interactive print mode with Haiku.
-    eprintln!("generating commit message with claude haiku…");
+    let pb = spinner("generating commit message with claude haiku…");
     let mut child = Command::new("claude")
         .args(["-p", "--model", "haiku"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|e| format!("failed to spawn `claude` (is it on PATH?): {e}"))?;
+        .map_err(|e| {
+            pb.finish_and_clear();
+            format!("failed to spawn `claude` (is it on PATH?): {e}")
+        })?;
 
     child
         .stdin
         .as_mut()
         .ok_or("failed to open claude stdin")?
         .write_all(prompt.as_bytes())
-        .map_err(|e| format!("failed to write prompt to claude: {e}"))?;
+        .map_err(|e| {
+            pb.finish_and_clear();
+            format!("failed to write prompt to claude: {e}")
+        })?;
 
     let claude_out = child
         .wait_with_output()
-        .map_err(|e| format!("failed to wait on claude: {e}"))?;
+        .map_err(|e| {
+            pb.finish_and_clear();
+            format!("failed to wait on claude: {e}")
+        })?;
     if !claude_out.status.success() {
+        pb.finish_and_clear();
         return Err(format!(
             "claude exited with {}: {}",
             claude_out.status,
@@ -99,11 +146,14 @@ fn run() -> Result<(), String> {
 
     let message = clean_message(&String::from_utf8_lossy(&claude_out.stdout));
     if message.is_empty() {
+        pb.finish_and_clear();
         return Err("claude returned an empty commit message".into());
     }
+    pb.finish_with_message("commit message generated");
 
     // 6. Hand off to `git commit -e -m <msg>` so the user can review/edit.
     //    Inherit stdio so the editor gets the terminal.
+    eprintln!("\nopening editor to review commit message…");
     let status = Command::new("git")
         .arg("commit")
         .arg("-e")
