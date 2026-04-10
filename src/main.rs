@@ -2,7 +2,16 @@ use std::io::Write;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
+use clap::Parser;
 use indicatif::{ProgressBar, ProgressStyle};
+
+#[derive(Parser)]
+#[command(about = "Generate git commit messages from staged diffs using Claude")]
+struct Args {
+    /// Claude model to use (passed directly to `claude --model`)
+    #[arg(long, default_value = "haiku")]
+    model: String,
+}
 
 #[derive(serde::Deserialize)]
 struct ClaudeResponse {
@@ -26,7 +35,8 @@ struct ClaudeUsage {
 }
 
 fn main() {
-    if let Err(e) = run() {
+    let args = Args::parse();
+    if let Err(e) = run(&args.model) {
         eprintln!("error: {e}");
         std::process::exit(1);
     }
@@ -44,7 +54,7 @@ fn spinner(msg: &str) -> ProgressBar {
     pb
 }
 
-fn run() -> Result<(), String> {
+fn run(model: &str) -> Result<(), String> {
     // 1. Ensure we're in a git repo.
     let pb = spinner("checking git repository…");
     let status = Command::new("git")
@@ -127,10 +137,10 @@ fn run() -> Result<(), String> {
         diff = diff_for_prompt,
     );
 
-    // 5. Run claude in non-interactive print mode with Haiku.
-    let pb = spinner("generating commit message with claude haiku…");
+    // 5. Run claude in non-interactive print mode.
+    let pb = spinner(&format!("generating commit message with claude {model}…"));
     let mut child = Command::new("claude")
-        .args(["-p", "--model", "haiku", "--output-format", "json"])
+        .args(["-p", "--model", model, "--output-format", "json"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -158,11 +168,14 @@ fn run() -> Result<(), String> {
         })?;
     if !claude_out.status.success() {
         pb.finish_and_clear();
-        return Err(format!(
-            "claude exited with {}: {}",
-            claude_out.status,
-            String::from_utf8_lossy(&claude_out.stderr)
-        ));
+        let stderr = String::from_utf8_lossy(&claude_out.stderr);
+        let stdout = String::from_utf8_lossy(&claude_out.stdout);
+        let output = if !stderr.trim().is_empty() {
+            stderr
+        } else {
+            stdout
+        };
+        return Err(format!("claude exited with {}: {}", claude_out.status, output));
     }
 
     let stdout = String::from_utf8_lossy(&claude_out.stdout);
