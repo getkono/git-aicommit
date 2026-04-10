@@ -4,6 +4,27 @@ use std::time::Duration;
 
 use indicatif::{ProgressBar, ProgressStyle};
 
+#[derive(serde::Deserialize)]
+struct ClaudeResponse {
+    is_error: bool,
+    result: Option<String>,
+    #[serde(default)]
+    total_cost_usd: f64,
+    usage: ClaudeUsage,
+}
+
+#[derive(serde::Deserialize, Default)]
+struct ClaudeUsage {
+    #[serde(default)]
+    input_tokens: u64,
+    #[serde(default)]
+    cache_creation_input_tokens: u64,
+    #[serde(default)]
+    cache_read_input_tokens: u64,
+    #[serde(default)]
+    output_tokens: u64,
+}
+
 fn main() {
     if let Err(e) = run() {
         eprintln!("error: {e}");
@@ -109,7 +130,7 @@ fn run() -> Result<(), String> {
     // 5. Run claude in non-interactive print mode with Haiku.
     let pb = spinner("generating commit message with claude haiku…");
     let mut child = Command::new("claude")
-        .args(["-p", "--model", "haiku"])
+        .args(["-p", "--model", "haiku", "--output-format", "json"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -144,12 +165,36 @@ fn run() -> Result<(), String> {
         ));
     }
 
-    let message = clean_message(&String::from_utf8_lossy(&claude_out.stdout));
+    let stdout = String::from_utf8_lossy(&claude_out.stdout);
+    let parsed: ClaudeResponse = serde_json::from_str(&stdout).map_err(|e| {
+        pb.finish_and_clear();
+        format!("failed to parse claude JSON response: {e}\nraw: {stdout}")
+    })?;
+
+    if parsed.is_error {
+        pb.finish_and_clear();
+        return Err(format!("claude reported an error in its response: {stdout}"));
+    }
+
+    let raw_result = parsed.result.ok_or_else(|| {
+        pb.finish_and_clear();
+        "claude response missing `result` field".to_string()
+    })?;
+
+    let message = clean_message(&raw_result);
     if message.is_empty() {
         pb.finish_and_clear();
         return Err("claude returned an empty commit message".into());
     }
-    pb.finish_with_message("commit message generated");
+
+    let input_total = parsed.usage.input_tokens + parsed.usage.cache_creation_input_tokens;
+    let output_total = parsed.usage.output_tokens;
+    pb.finish_with_message(format!(
+        "commit message generated  ({} in / {} out, {})",
+        fmt_tokens(input_total),
+        fmt_tokens(output_total),
+        fmt_cost(parsed.usage.cache_read_input_tokens, parsed.total_cost_usd),
+    ));
 
     // 6. Hand off to `git commit -e -m <msg>` so the user can review/edit.
     //    Inherit stdio so the editor gets the terminal.
@@ -169,6 +214,25 @@ fn run() -> Result<(), String> {
         return Err(format!("`git commit` exited with {status}"));
     }
     Ok(())
+}
+
+/// Format a token count with thousands separators (e.g. 12345 -> "12,345").
+fn fmt_tokens(n: u64) -> String {
+    let s = n.to_string();
+    let bytes = s.as_bytes();
+    let mut out = String::with_capacity(s.len() + s.len() / 3);
+    for (i, b) in bytes.iter().enumerate() {
+        if i > 0 && (bytes.len() - i) % 3 == 0 {
+            out.push(',');
+        }
+        out.push(*b as char);
+    }
+    out
+}
+
+/// Format cost as "$0.0034".
+fn fmt_cost(_cache_read: u64, usd: f64) -> String {
+    format!("${:.4}", usd)
 }
 
 /// Strip stray code fences / surrounding whitespace that models sometimes add.
