@@ -20,6 +20,23 @@ Large diffs are truncated at 60KB to keep the prompt sane.
 
 ## Install
 
+**From crates.io** (requires Rust):
+
+```sh
+cargo install git-aicommit
+```
+
+**Pre-built binary** — download from the [latest release](https://github.com/getkono/git-ai-commits/releases/latest),
+extract, and copy to a directory on your `$PATH`:
+
+```sh
+# Linux/macOS example
+tar xzf git-aicommit-x86_64-unknown-linux-musl.tar.gz
+mv git-aicommit ~/.local/bin/
+```
+
+**Build from source**:
+
 ```sh
 cargo build --release
 cp target/release/git-aicommit ~/.local/bin/   # or anywhere on $PATH
