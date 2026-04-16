@@ -34,6 +34,16 @@ struct ClaudeUsage {
     output_tokens: u64,
 }
 
+const SYSTEM_PROMPT: &str = "\
+You are generating a git commit message for staged changes provided as a unified diff.\n\
+\n\
+Rules:\n\
+- Follow Conventional Commits style (e.g. feat:, fix:, refactor:, docs:, chore:, test:).\n\
+- First line: imperative mood, <= 72 chars, no trailing period.\n\
+- Then a blank line.\n\
+- Then an optional short body (wrapped at ~72 chars) explaining the WHY, not the what.\n\
+- Output ONLY the commit message. No code fences, no preamble, no explanation.";
+
 fn main() {
     let args = Args::parse();
     if let Err(e) = run(&args.model) {
@@ -93,25 +103,13 @@ fn run(model: &str) -> Result<(), String> {
         pb.finish_and_clear();
         return Err("no staged changes (did you forget `git add`?)".into());
     }
+    let file_count = diff
+        .lines()
+        .filter(|l| l.starts_with("diff --git"))
+        .count();
+    pb.finish_with_message(format!("staged changes ready  ({file_count} file(s))"));
 
-    // 3. Also grab a short name-status summary for extra context.
-    let stat_out = Command::new("git")
-        .args(["diff", "--cached", "--stat"])
-        .output()
-        .map_err(|e| {
-            pb.finish_and_clear();
-            format!("failed to run `git diff --cached --stat`: {e}")
-        })?;
-    let stat = String::from_utf8_lossy(&stat_out.stdout).to_string();
-    pb.finish_with_message(format!(
-        "staged changes ready  ({})",
-        stat.lines()
-            .last()
-            .unwrap_or("")
-            .trim()
-    ));
-
-    // 4. Truncate the diff if it's huge, so we don't blow up the prompt.
+    // 3. Truncate the diff if it's huge, so we don't blow up the prompt.
     const MAX_DIFF_BYTES: usize = 60_000;
     let diff_for_prompt = if diff.len() > MAX_DIFF_BYTES {
         let mut s = diff[..MAX_DIFF_BYTES].to_string();
@@ -121,26 +119,26 @@ fn run(model: &str) -> Result<(), String> {
         diff
     };
 
-    let prompt = format!(
-        "You are generating a git commit message for the following staged changes.\n\
-         \n\
-         Rules:\n\
-         - Follow Conventional Commits style (e.g. feat:, fix:, refactor:, docs:, chore:, test:).\n\
-         - First line: imperative mood, <= 72 chars, no trailing period.\n\
-         - Then a blank line.\n\
-         - Then an optional short body (wrapped at ~72 chars) explaining the WHY, not the what.\n\
-         - Output ONLY the commit message. No code fences, no preamble, no explanation.\n\
-         \n\
-         --- diffstat ---\n{stat}\n\
-         --- diff ---\n{diff}\n",
-        stat = stat,
-        diff = diff_for_prompt,
-    );
-
-    // 5. Run claude in non-interactive print mode.
+    // 4. Run claude in non-interactive print mode with minimal context:
+    //    --tools ""              – disables all built-in tools (none needed)
+    //    --system-prompt         – replaces the default system prompt
+    //    --no-session-persistence – don't write session to disk
+    //    --disable-slash-commands – skip skill resolution
     let pb = spinner(&format!("generating commit message with claude {model}…"));
     let mut child = Command::new("claude")
-        .args(["-p", "--model", model, "--output-format", "json"])
+        .args([
+            "-p",
+            "--model",
+            model,
+            "--output-format",
+            "json",
+            "--tools",
+            "",
+            "--no-session-persistence",
+            "--disable-slash-commands",
+            "--system-prompt",
+            SYSTEM_PROMPT,
+        ])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -154,7 +152,7 @@ fn run(model: &str) -> Result<(), String> {
         .stdin
         .as_mut()
         .ok_or("failed to open claude stdin")?
-        .write_all(prompt.as_bytes())
+        .write_all(diff_for_prompt.as_bytes())
         .map_err(|e| {
             pb.finish_and_clear();
             format!("failed to write prompt to claude: {e}")
