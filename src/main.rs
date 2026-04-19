@@ -103,10 +103,7 @@ fn run(model: &str) -> Result<(), String> {
         pb.finish_and_clear();
         return Err("no staged changes (did you forget `git add`?)".into());
     }
-    let file_count = diff
-        .lines()
-        .filter(|l| l.starts_with("diff --git"))
-        .count();
+    let file_count = diff.lines().filter(|l| l.starts_with("diff --git")).count();
     pb.finish_with_message(format!("staged changes ready  ({file_count} file(s))"));
 
     // 3. Truncate the diff if it's huge, so we don't blow up the prompt.
@@ -158,12 +155,10 @@ fn run(model: &str) -> Result<(), String> {
             format!("failed to write prompt to claude: {e}")
         })?;
 
-    let claude_out = child
-        .wait_with_output()
-        .map_err(|e| {
-            pb.finish_and_clear();
-            format!("failed to wait on claude: {e}")
-        })?;
+    let claude_out = child.wait_with_output().map_err(|e| {
+        pb.finish_and_clear();
+        format!("failed to wait on claude: {e}")
+    })?;
     if !claude_out.status.success() {
         pb.finish_and_clear();
         let stderr = String::from_utf8_lossy(&claude_out.stderr);
@@ -173,7 +168,10 @@ fn run(model: &str) -> Result<(), String> {
         } else {
             stdout
         };
-        return Err(format!("claude exited with {}: {}", claude_out.status, output));
+        return Err(format!(
+            "claude exited with {}: {}",
+            claude_out.status, output
+        ));
     }
 
     let stdout = String::from_utf8_lossy(&claude_out.stdout);
@@ -184,7 +182,9 @@ fn run(model: &str) -> Result<(), String> {
 
     if parsed.is_error {
         pb.finish_and_clear();
-        return Err(format!("claude reported an error in its response: {stdout}"));
+        return Err(format!(
+            "claude reported an error in its response: {stdout}"
+        ));
     }
 
     let raw_result = parsed.result.ok_or_else(|| {
@@ -233,7 +233,7 @@ fn fmt_tokens(n: u64) -> String {
     let bytes = s.as_bytes();
     let mut out = String::with_capacity(s.len() + s.len() / 3);
     for (i, b) in bytes.iter().enumerate() {
-        if i > 0 && (bytes.len() - i) % 3 == 0 {
+        if i > 0 && (bytes.len() - i).is_multiple_of(3) {
             out.push(',');
         }
         out.push(*b as char);
