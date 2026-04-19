@@ -1,3 +1,28 @@
+# Default recipe — show available commands
+default:
+    @just --list
+
+# Format all code
+fmt:
+    cargo fmt --all
+
+# Check formatting (CI mode)
+fmt-check:
+    cargo fmt --all -- --check
+
+# Run clippy lints
+clippy:
+    cargo clippy --all-targets -- -D warnings
+
+# Auto-fix clippy lints
+clippy-fix:
+    cargo clippy --fix --allow-dirty --allow-staged --all-targets -- -D warnings
+
+# Install git hooks
+setup:
+    lefthook install
+    cargo build
+
 # Release: bump Cargo.toml version, commit, tag, and push to trigger GH Actions release workflow.
 # Usage: just release 0.2.0
 release version:
