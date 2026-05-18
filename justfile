@@ -50,7 +50,7 @@ release version:
     fi
 
     # Bump version in Cargo.toml
-    sed -i "s/^version = \".*\"/version = \"{{version}}\"/" Cargo.toml
+    sed -i.bak "s/^version = \".*\"/version = \"{{version}}\"/" Cargo.toml && rm -f Cargo.toml.bak
 
     # Update Cargo.lock
     cargo update --workspace --precise "{{version}}" 2>/dev/null || cargo generate-lockfile
