@@ -17,6 +17,7 @@ Large diffs are truncated at 60KB to keep the prompt sane.
 - Rust (stable)
 - `git`
 - [`claude`](https://docs.claude.com/en/docs/claude-code) CLI, installed and authenticated
+  (tested with Claude Code 2.x; requires a version that supports `--output-format json` and `--disable-slash-commands`)
 
 ## Install
 
