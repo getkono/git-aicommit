@@ -116,7 +116,35 @@ fn run(model: &str) -> Result<(), String> {
         diff
     };
 
-    // 4. Run claude in non-interactive print mode with minimal context:
+    // 4. Run pre-commit hooks before generating a message so we fail fast if
+    //    the staged changes are rejected.
+    let hooks_dir = git_hooks_dir()?;
+    let hook = hooks_dir.join("pre-commit");
+    let hooks_ran = if hook.exists() {
+        eprintln!("\nrunning pre-commit hooks…");
+        let toplevel_out = Command::new("git")
+            .args(["rev-parse", "--show-toplevel"])
+            .output()
+            .map_err(|e| format!("failed to run git: {e}"))?;
+        let repo_root = String::from_utf8_lossy(&toplevel_out.stdout)
+            .trim()
+            .to_string();
+        let hook_status = Command::new(&hook)
+            .current_dir(&repo_root)
+            .stdin(Stdio::inherit())
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit())
+            .status()
+            .map_err(|e| format!("failed to run pre-commit hook: {e}"))?;
+        if !hook_status.success() {
+            return Err(format!("`pre-commit` hook failed (exit {hook_status})"));
+        }
+        true
+    } else {
+        false
+    };
+
+    // 5. Run claude in non-interactive print mode with minimal context:
     //    --tools ""              – disables all built-in tools (none needed)
     //    --system-prompt         – replaces the default system prompt
     //    --no-session-persistence – don't write session to disk
@@ -210,11 +238,13 @@ fn run(model: &str) -> Result<(), String> {
     // 6. Hand off to `git commit -e -m <msg>` so the user can review/edit.
     //    Inherit stdio so the editor gets the terminal.
     eprintln!("\nopening editor to review commit message…");
-    let status = Command::new("git")
-        .arg("commit")
-        .arg("-e")
-        .arg("-m")
-        .arg(&message)
+    let mut cmd = Command::new("git");
+    cmd.arg("commit").arg("-e").arg("-m").arg(&message);
+    // Hooks already ran and passed — skip re-running to avoid double execution.
+    if hooks_ran {
+        cmd.arg("--no-verify");
+    }
+    let status = cmd
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
@@ -244,6 +274,24 @@ fn fmt_tokens(n: u64) -> String {
 /// Format cost as "$0.0034".
 fn fmt_cost(_cache_read: u64, usd: f64) -> String {
     format!("${:.4}", usd)
+}
+
+/// Resolve the directory that holds git hooks, respecting `core.hooksPath`.
+fn git_hooks_dir() -> Result<std::path::PathBuf, String> {
+    let cfg = Command::new("git")
+        .args(["config", "--get", "core.hooksPath"])
+        .output()
+        .map_err(|e| format!("failed to run git: {e}"))?;
+    if cfg.status.success() {
+        let path = String::from_utf8_lossy(&cfg.stdout).trim().to_string();
+        return Ok(std::path::PathBuf::from(path));
+    }
+    let out = Command::new("git")
+        .args(["rev-parse", "--git-dir"])
+        .output()
+        .map_err(|e| format!("failed to run git: {e}"))?;
+    let git_dir = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    Ok(std::path::PathBuf::from(git_dir).join("hooks"))
 }
 
 /// Strip stray code fences / surrounding whitespace that models sometimes add.
