@@ -11,6 +11,12 @@ struct Args {
     /// Claude model to use (passed directly to `claude --model`)
     #[arg(long, default_value = "haiku")]
     model: String,
+
+    /// Extra arguments forwarded verbatim to `git commit`
+    /// (e.g. --no-verify, --allow-empty, --signoff).
+    /// Passing --no-verify also skips the preliminary pre-commit hook check.
+    #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+    git_args: Vec<String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -46,7 +52,7 @@ Rules:\n\
 
 fn main() {
     let args = Args::parse();
-    if let Err(e) = run(&args.model) {
+    if let Err(e) = run(&args.model, &args.git_args) {
         eprintln!("error: {e}");
         std::process::exit(1);
     }
@@ -64,7 +70,7 @@ fn spinner(msg: &str) -> ProgressBar {
     pb
 }
 
-fn run(model: &str) -> Result<(), String> {
+fn run(model: &str, git_args: &[String]) -> Result<(), String> {
     // 1. Ensure we're in a git repo.
     let pb = spinner("checking git repository…");
     let status = Command::new("git")
@@ -116,37 +122,30 @@ fn run(model: &str) -> Result<(), String> {
         diff
     };
 
-    // 4. Run pre-commit hooks before generating a message so we fail fast if
-    //    the staged changes are rejected.
-    let hooks_dir = git_hooks_dir()?;
-    let hook = hooks_dir.join("pre-commit");
-    let hooks_ran = if hook.exists() {
-        eprintln!("\nrunning pre-commit hooks…");
-        let toplevel_out = Command::new("git")
-            .args(["rev-parse", "--show-toplevel"])
-            .output()
-            .map_err(|e| format!("failed to run git: {e}"))?;
-        let repo_root = String::from_utf8_lossy(&toplevel_out.stdout)
-            .trim()
-            .to_string();
-        let hook_status = Command::new(&hook)
-            .current_dir(&repo_root)
+    // 4. Run pre-commit hooks before spending tokens on Claude.
+    //    If hooks would reject the commit there's no point generating a message.
+    //    Skipped when --no-verify is present in git_args.
+    let no_verify = git_args.iter().any(|a| a == "--no-verify");
+    if !no_verify {
+        eprintln!("running pre-commit hooks…");
+        let hook_status = Command::new("git")
+            .args(["hook", "run", "--ignore-missing", "pre-commit"])
             .stdin(Stdio::inherit())
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())
             .status()
-            .map_err(|e| format!("failed to run pre-commit hook: {e}"))?;
+            .map_err(|e| format!("failed to run pre-commit hooks: {e}"))?;
         if !hook_status.success() {
-            return Err(format!("`pre-commit` hook failed (exit {hook_status})"));
+            return Err(format!(
+                "pre-commit hooks failed (exit {hook_status}); fix the issues and try again"
+            ));
         }
-        true
-    } else {
-        false
-    };
+        eprintln!("pre-commit hooks passed");
+    }
 
     // 5. Run claude in non-interactive print mode with minimal context:
-    //    --tools ""              – disables all built-in tools (none needed)
-    //    --system-prompt         – replaces the default system prompt
+    //    --tools ""               – disables all built-in tools (none needed)
+    //    --system-prompt          – replaces the default system prompt
     //    --no-session-persistence – don't write session to disk
     //    --disable-slash-commands – skip skill resolution
     let pb = spinner(&format!("generating commit message with claude {model}…"));
@@ -235,13 +234,14 @@ fn run(model: &str) -> Result<(), String> {
         fmt_cost(parsed.usage.cache_read_input_tokens, parsed.total_cost_usd),
     ));
 
-    // 6. Hand off to `git commit -e -m <msg>` so the user can review/edit.
+    // 6. Hand off to `git commit -e -m <msg> [git_args…]` so the user can review/edit.
     //    Inherit stdio so the editor gets the terminal.
     eprintln!("\nopening editor to review commit message…");
     let mut cmd = Command::new("git");
     cmd.arg("commit").arg("-e").arg("-m").arg(&message);
-    // Hooks already ran and passed — skip re-running to avoid double execution.
-    if hooks_ran {
+    cmd.args(git_args);
+    // Hooks already ran and passed — add --no-verify to avoid double execution.
+    if !no_verify {
         cmd.arg("--no-verify");
     }
     let status = cmd
@@ -274,24 +274,6 @@ fn fmt_tokens(n: u64) -> String {
 /// Format cost as "$0.0034".
 fn fmt_cost(_cache_read: u64, usd: f64) -> String {
     format!("${:.4}", usd)
-}
-
-/// Resolve the directory that holds git hooks, respecting `core.hooksPath`.
-fn git_hooks_dir() -> Result<std::path::PathBuf, String> {
-    let cfg = Command::new("git")
-        .args(["config", "--get", "core.hooksPath"])
-        .output()
-        .map_err(|e| format!("failed to run git: {e}"))?;
-    if cfg.status.success() {
-        let path = String::from_utf8_lossy(&cfg.stdout).trim().to_string();
-        return Ok(std::path::PathBuf::from(path));
-    }
-    let out = Command::new("git")
-        .args(["rev-parse", "--git-dir"])
-        .output()
-        .map_err(|e| format!("failed to run git: {e}"))?;
-    let git_dir = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    Ok(std::path::PathBuf::from(git_dir).join("hooks"))
 }
 
 /// Strip stray code fences / surrounding whitespace that models sometimes add.

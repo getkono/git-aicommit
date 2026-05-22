@@ -7,16 +7,18 @@ A tiny Rust CLI that drafts a commit message from your staged changes using
 ## How it works
 
 1. Checks you're in a git repo and that something is staged.
-2. Feeds `git diff --cached` (plus a `--stat` summary) to `claude -p --model haiku` over stdin.
-3. Cleans up the response and runs `git commit -e -m "<message>"`, inheriting your terminal so `$EDITOR` opens normally.
+2. Runs `git hook run --ignore-missing pre-commit` as an early check — if hooks fail, the tool aborts before making any API call.
+3. Feeds `git diff --cached` to `claude -p --model haiku` over stdin.
+4. Cleans up the response and runs `git commit -e -m "<message>"`, inheriting your terminal so `$EDITOR` opens normally.
 
 Large diffs are truncated at 60KB to keep the prompt sane.
 
 ## Requirements
 
 - Rust (stable)
-- `git`
+- `git` ≥ 2.36 (for `git hook run`)
 - [`claude`](https://docs.claude.com/en/docs/claude-code) CLI, installed and authenticated
+  (tested with Claude Code 2.x; requires a version that supports `--output-format json` and `--disable-slash-commands`)
 
 ## Install
 
@@ -52,6 +54,21 @@ git aicommit
 ```
 
 Your editor opens with the AI-generated message. Save to commit, or quit with an empty message to abort.
+
+Any arguments after the known flags are forwarded verbatim to `git commit`:
+
+```sh
+# Skip hooks (pre-commit pre-check and final git commit hooks):
+git aicommit --no-verify
+
+# Sign the commit:
+git aicommit --signoff
+
+# Combine flags:
+git aicommit --no-verify --signoff
+```
+
+`--no-verify` serves double duty: it skips the pre-commit pre-check (so no API tokens are spent if you intend to bypass hooks) **and** passes `--no-verify` to the final `git commit`.
 
 ## Notes
 
