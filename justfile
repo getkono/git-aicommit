@@ -23,6 +23,37 @@ setup:
     lefthook install
     cargo build
 
+# Preview the changelog section for the not-yet-released commits.
+changelog-preview:
+    @git cliff --unreleased
+
+# Rebuild CHANGELOG.md from scratch (released versions, from git history).
+changelog:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    # The committed changelog lists released versions only; `just release` adds
+    # each new section. This recipe rebuilds the whole file from git history
+    # (use `just changelog-preview` to see the not-yet-released section).
+    if ! command -v git-cliff >/dev/null 2>&1; then
+        echo "Error: git-cliff not found — install with: cargo install git-cliff"
+        exit 1
+    fi
+
+    ROOT="$(git rev-list --max-parents=0 HEAD | tail -1)"
+    LATEST_TAG="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+
+    if [ -n "$LATEST_TAG" ]; then
+        # Range up to the latest tag so an untagged merge at HEAD can't get
+        # mis-attributed to the latest tagged release.
+        git cliff "${ROOT}..${LATEST_TAG}" --output CHANGELOG.md
+    else
+        git cliff --output CHANGELOG.md
+    fi
+
+    # Trim the trailing blank lines git-cliff leaves at EOF.
+    printf '%s\n' "$(cat CHANGELOG.md)" > CHANGELOG.md.tmp && mv CHANGELOG.md.tmp CHANGELOG.md
+
 # Release: bump Cargo.toml version, commit, tag, and push to trigger GH Actions release workflow.
 # Usage: just release 0.2.0
 release version:
@@ -32,6 +63,12 @@ release version:
     # Validate semver-ish format
     if ! echo "{{version}}" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+'; then
         echo "Error: version must be in X.Y.Z format (got '{{version}}')"
+        exit 1
+    fi
+
+    # git-cliff generates the changelog entry for this release
+    if ! command -v git-cliff >/dev/null 2>&1; then
+        echo "Error: git-cliff not found — install with: cargo install git-cliff"
         exit 1
     fi
 
@@ -55,7 +92,11 @@ release version:
     # Update Cargo.lock
     cargo update --workspace --precise "{{version}}" 2>/dev/null || cargo generate-lockfile
 
-    git add Cargo.toml Cargo.lock
+    # Prepend the changelog section for this release. --unreleased scopes to the
+    # not-yet-tagged commits; --tag labels that section with this version.
+    git cliff --tag "$TAG" --unreleased --prepend CHANGELOG.md
+
+    git add Cargo.toml Cargo.lock CHANGELOG.md
     git commit -m "chore: bump version to {{version}}"
 
     # Annotated tag triggers the release workflow
