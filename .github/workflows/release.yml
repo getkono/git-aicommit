@@ -74,14 +74,32 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
         with:
           merge-multiple: true
+
+      - name: Extract changelog entry
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          # Pull this version's section out of CHANGELOG.md (heading until the
+          # next "## ["). Missing/empty is fine — the auto-generated notes below
+          # still populate the release body.
+          awk -v ver="$VERSION" '
+            $0 ~ "^## \\[" ver "\\]" { flag = 1; print; next }
+            flag && /^## \[/ { exit }
+            flag { print }
+          ' CHANGELOG.md > release-notes.md
+          echo "Release notes for $VERSION:"
+          cat release-notes.md
 
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
           files: git-aicommit-*
+          body_path: release-notes.md
           generate_release_notes: true
 
   publish:

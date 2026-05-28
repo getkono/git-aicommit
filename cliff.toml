@@ -1,0 +1,87 @@
+# git-cliff configuration — generates CHANGELOG.md from Conventional Commits.
+# Docs: https://git-cliff.org/docs/configuration
+#
+#   just changelog-preview   # show the pending (unreleased) section
+#   just changelog           # rebuild CHANGELOG.md from scratch
+#   just release X.Y.Z       # cuts a release; prepends the new section here
+
+[changelog]
+# Rendered once at the top of the file.
+header = """
+# Changelog
+
+All notable changes to this project are documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+"""
+# Rendered once per release. `version` is unset for the unreleased section.
+# Headings link inline (rather than via reference-style footer links) so the
+# template stays self-contained — important for the prepend-based release flow.
+body = """
+{% if version -%}
+    ## [{{ version | trim_start_matches(pat="v") }}](https://github.com/{{ remote.github.owner }}/{{ remote.github.repo }}/releases/tag/{{ version }}) - {{ timestamp | date(format="%Y-%m-%d") }}
+{% else -%}
+    ## [Unreleased]
+{% endif -%}
+{% for group, commits in commits | group_by(attribute="group") %}
+    ### {{ group | striptags | trim | upper_first }}
+    {% for commit in commits %}
+        - {% if commit.scope %}**{{ commit.scope }}:** {% endif %}{{ commit.message | split(pat="\n") | first | upper_first | trim }}\
+    {% endfor %}
+{% endfor %}\n
+"""
+footer = ""
+# Strip leading/trailing whitespace from each rendered section.
+trim = true
+# Collapse any accidental run of blank lines down to a single one.
+postprocessors = [
+    { pattern = '\n{3,}', replace = "\n\n" },
+]
+
+[git]
+# Parse commits as Conventional Commits (feat:, fix:, ...).
+conventional_commits = true
+# Keep non-conventional commits too — the catch-all parser routes them to
+# Miscellaneous so nothing is silently dropped during the history backfill.
+filter_unconventional = false
+# Don't drop commits that match no parser (the catch-all handles them).
+filter_commits = false
+split_commits = false
+# Tags look like v0.1.0, v1.2.3, ...
+tag_pattern = "v[0-9]*"
+# Newest release first; newest commit first within a release.
+sort_commits = "newest"
+topo_order = false
+
+# Tidy subjects before grouping/rendering. `[ \t]*` (not `\s*`) so a trailing
+# "(closes #N)" is stripped without ever swallowing the newline into the body.
+commit_preprocessors = [
+    { pattern = '[ \t]*\(?(?i)(closes?|fixes?|resolves?)\s+#\d+\)?', replace = "" },
+]
+
+# First match wins. Numeric HTML-comment prefixes set group order; the template
+# strips them with `striptags`.
+commit_parsers = [
+    { message = "^Merge", skip = true },
+    { message = "^chore:?\\s*bump version", skip = true },
+    { message = "^chore\\(release\\)", skip = true },
+    { message = "^[Ii]nit$", skip = true },
+    { message = "^feat", group = "<!-- 0 -->Features" },
+    { message = "^fix", group = "<!-- 1 -->Bug Fixes" },
+    { message = "^perf", group = "<!-- 2 -->Performance" },
+    { message = "^docs", group = "<!-- 3 -->Documentation" },
+    { message = "^refactor", group = "<!-- 4 -->Refactor" },
+    { message = "^style", group = "<!-- 5 -->Styling" },
+    { message = "^test", group = "<!-- 6 -->Testing" },
+    { message = "^(ci|build)", group = "<!-- 7 -->CI/Build" },
+    { message = "^revert", group = "<!-- 8 -->Reverted" },
+    # Everything else (chore:, plain subjects like "Add dual licenses", ...).
+    { message = ".*", group = "<!-- 9 -->Miscellaneous" },
+]
+
+# Used to build heading/compare links without hitting the GitHub API.
+[remote.github]
+owner = "getkono"
+repo = "git-aicommit"
