@@ -18,6 +18,10 @@ clippy:
 clippy-fix:
     cargo clippy --fix --allow-dirty --allow-staged --all-targets -- -D warnings
 
+# Run the test suite
+test:
+    cargo test
+
 # Install git hooks
 setup:
     lefthook install

@@ -6,10 +6,11 @@ A tiny Rust CLI that drafts a commit message from your staged changes using
 
 ## How it works
 
-1. Checks you're in a git repo and that something is staged.
-2. Runs `git hook run --ignore-missing pre-commit` as an early check — if hooks fail, the tool aborts before making any API call.
-3. Feeds `git diff --cached` to `claude -p --model haiku` over stdin.
-4. Cleans up the response and runs `git commit -e -m "<message>"`, inheriting your terminal so `$EDITOR` opens normally.
+1. Parses standard `git commit` flags (see [Supported flags](#supported-flags)) to decide what to diff and how to prompt.
+2. Checks you're in a git repo and that there's something to commit.
+3. For plain and `--amend` commits, runs `git hook run --ignore-missing pre-commit` as an early check — if hooks fail, the tool aborts before making any API call. (For `-a` and pathspec commits the staged index isn't what gets committed, so hooks run at commit time instead.)
+4. Feeds the relevant diff to `claude -p --model haiku` over stdin.
+5. Cleans up the response and runs `git commit -e -m "<message>" …`, inheriting your terminal so `$EDITOR` opens normally.
 
 Large diffs are truncated at 60KB to keep the prompt sane.
 
@@ -55,23 +56,56 @@ git aicommit
 
 Your editor opens with the AI-generated message. Save to commit, or quit with an empty message to abort.
 
-Any arguments after the known flags are forwarded verbatim to `git commit`:
+`git aicommit` aims to be a drop-in for `git commit`: it understands the common flags and forwards anything else straight through. Pass `--model` (if you use it) before any git flags; run `git aicommit --help` for a summary.
+
+### Supported flags
+
+**Shape the diff the AI sees:**
 
 ```sh
-# Skip hooks (pre-commit pre-check and final git commit hooks):
-git aicommit --no-verify
+git aicommit -a                # include all tracked changes (like `git commit -a`)
+git aicommit src/foo.rs        # commit only these paths (working-tree content, like git's --only)
+git aicommit -p                # stage hunks interactively first, then summarize what you staged
+git aicommit --amend           # regenerate the message from the previous message + combined diff
+```
 
-# Sign the commit:
-git aicommit --signoff
+**Steer the AI:**
 
-# Combine flags:
+```sh
+git aicommit -m "call out the perf fix"     # an instruction, NOT a literal message (repeatable)
+git aicommit -t .gitmessage                 # make the output follow a template file
+```
+
+**Forwarded verbatim to `git commit`** — `-e`/`--edit` (on by default), `-n`/`--no-verify`, `-s`/`--signoff`, `-S`/`--gpg-sign`, `--author`, `--date`, `--allow-empty`, `--no-edit`, and anything else not listed here:
+
+```sh
 git aicommit --no-verify --signoff
 ```
 
 `--no-verify` serves double duty: it skips the pre-commit pre-check (so no API tokens are spent if you intend to bypass hooks) **and** passes `--no-verify` to the final `git commit`.
 
+**Preview without committing:**
+
+```sh
+git aicommit --dry-run         # print the diff + generated message, then exit
+```
+
+**Bypass the AI entirely** — when the message already comes from elsewhere, git handles the commit directly with no API call:
+
+```sh
+git aicommit --fixup HEAD~2
+git aicommit --squash <commit>
+git aicommit -C <commit>       # also -c / -F / --reuse-message / --reedit-message / --file
+```
+
+Use `--` to separate paths from flags when a filename could look like a flag:
+
+```sh
+git aicommit -- --weird-filename
+```
+
 ## Notes
 
 - The prompt asks for Conventional Commits style (`feat:`, `fix:`, etc.), imperative subject ≤72 chars, optional body explaining the *why*.
-- Nothing is committed without your confirmation — the editor step is always run.
+- By default the editor opens so you can review before committing; quit with an empty message to abort. `--no-edit` commits the generated message directly, and `--dry-run` never commits.
 - No API key handling here; auth is delegated entirely to the `claude` CLI.
