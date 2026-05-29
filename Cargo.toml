@@ -11,7 +11,7 @@ homepage = "https://github.com/getkono/git-aicommit"
 readme = "README.md"
 keywords = ["git", "commit", "ai", "claude", "cli"]
 categories = ["command-line-utilities", "development-tools"]
-exclude = ["target/", "/.github", "DEVELOPMENT.md"]
+exclude = ["target/", "/.github", "/Cross.toml", "DEVELOPMENT.md"]
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }

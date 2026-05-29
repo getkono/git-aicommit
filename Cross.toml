@@ -1,0 +1,9 @@
+# Forward the version metadata exported by the release workflow into the cross
+# build container (which has no `git`), so the cross-compiled Linux binaries
+# report a real commit hash and build date. See `build.rs` and the Build step in
+# `.github/workflows/release.yml`.
+[build.env]
+passthrough = [
+    "GIT_AICOMMIT_COMMIT",
+    "GIT_AICOMMIT_BUILD_DATE",
+]

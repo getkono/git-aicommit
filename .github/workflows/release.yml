@@ -41,6 +41,12 @@ jobs:
       - name: Build
         shell: bash
         run: |
+          # Bake real version metadata into the binary. Exported here, where git
+          # is available, then forwarded into the cross container (which has no
+          # git) via Cross.toml. build.rs falls back to probing locally when
+          # these are unset, so plain `cargo build` still works.
+          export GIT_AICOMMIT_COMMIT="$(git rev-parse --short HEAD)"
+          export GIT_AICOMMIT_BUILD_DATE="$(date -u '+%Y-%m-%d %H:%M:%S UTC')"
           if [[ "${{ matrix.use_cross }}" == "true" ]]; then
             cross build --release --target ${{ matrix.target }}
           else

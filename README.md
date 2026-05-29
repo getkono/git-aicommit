@@ -65,7 +65,7 @@ git aicommit
 
 Your editor opens with the AI-generated message. Save to commit, or quit with an empty message to abort.
 
-`git aicommit` aims to be a drop-in for `git commit`: it understands the common flags and forwards anything else straight through. Pass `--model` (if you use it) before any git flags; run `git aicommit --help` for a summary.
+`git aicommit` aims to be a drop-in for `git commit`: it understands the common flags and forwards anything else straight through. Pass `--model` (if you use it) before any git flags; run `git aicommit --help` for a summary, or `git aicommit --version` to print the version, build metadata, and binary path.
 
 ### Supported flags
 

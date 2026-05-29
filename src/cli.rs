@@ -22,6 +22,27 @@ pub(crate) struct Args {
     pub(crate) git_args: Vec<String>,
 }
 
+/// The multi-line `--version` report: the semver line, the build metadata baked
+/// in by `build.rs`, and the path of the running binary (resolved at runtime).
+pub(crate) fn version() -> String {
+    let binary = std::env::current_exe()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|_| "unknown".to_string());
+    format!(
+        "\
+git-aicommit {version}
+  commit:   {commit}
+  built:    {built}
+  profile:  {profile}
+  binary:   {binary}
+",
+        version = env!("CARGO_PKG_VERSION"),
+        commit = env!("GIT_AICOMMIT_COMMIT_HASH"),
+        built = env!("GIT_AICOMMIT_BUILD_DATE"),
+        profile = env!("GIT_AICOMMIT_BUILD_PROFILE"),
+    )
+}
+
 pub(crate) const HELP: &str = "\
 git-aicommit — draft a commit message from your changes with Claude, then open `git commit`.
 
@@ -30,6 +51,7 @@ USAGE:
 
 HANDLED BY git-aicommit:
     --model <name>      Claude model to use (default: haiku). Must come first.
+    -V, --version       Print version, build metadata, and binary path, then exit.
     -m, --message <s>   Steer the AI with an instruction (NOT a literal message). Repeatable.
     -t, --template <f>  Make the AI follow the format/structure in file <f>.
     -a, --all           Include all tracked changes (diff vs HEAD); also forwarded to git.
@@ -41,7 +63,8 @@ HANDLED BY git-aicommit:
 
 FORWARDED to `git commit` verbatim:
     -e/--edit (on by default), -n/--no-verify, -s/--signoff, -S/--gpg-sign,
-    --author, --date, --allow-empty, and any other flags you pass.
+    -v/--verbose (note: -V is our version flag), --author, --date,
+    --allow-empty, and any other flags you pass.
 
 BYPASS (no AI; runs plain `git commit`):
     --fixup, --squash, -C/--reuse-message, -c/--reedit-message, -F/--file

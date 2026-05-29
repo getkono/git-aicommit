@@ -53,6 +53,12 @@ pub(crate) fn wants_help(git_args: &[String]) -> bool {
     git_args.iter().any(|a| a == "-h" || a == "--help")
 }
 
+/// `true` if the user asked for the version (`-V`/`--version`). We deliberately
+/// do *not* claim `-v`: that's git's `--verbose`, which we forward untouched.
+pub(crate) fn wants_version(git_args: &[String]) -> bool {
+    git_args.iter().any(|a| a == "-V" || a == "--version")
+}
+
 /// `true` if the user supplied a message from another commit/file (`--fixup`,
 /// `--squash`, `-C`/`-c`/`-F` and their long forms). There is nothing for the AI
 /// to generate, so we hand the original args straight to `git commit`.
@@ -467,5 +473,26 @@ mod tests {
         assert!(!bypass(&["-am", "x"])); // `m` consumes the rest; no C/c/F flag
         assert!(!bypass(&["file.js"]));
         assert!(!bypass(&[]));
+    }
+
+    fn version(args: &[&str]) -> bool {
+        wants_version(&args.iter().map(|s| s.to_string()).collect::<Vec<_>>())
+    }
+
+    #[test]
+    fn version_flag() {
+        assert!(version(&["-V"]));
+        assert!(version(&["--version"]));
+        assert!(version(&["-a", "--version"])); // recognized anywhere, like --help
+        assert!(!version(&[]));
+        assert!(!version(&["-a"]));
+        // `-v` is git's --verbose, not our version flag.
+        assert!(!version(&["-v"]));
+    }
+
+    #[test]
+    fn verbose_is_forwarded_not_intercepted() {
+        // `-v` must reach `git commit` untouched (it's --verbose, not --version).
+        assert_eq!(parse(&["-v"]).passthrough, v(&["-v"]));
     }
 }
