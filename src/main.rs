@@ -29,6 +29,10 @@ fn run(model: &str, git_args: &[String]) -> Result<()> {
         print!("{}", cli::HELP);
         return Ok(());
     }
+    if flags::wants_version(git_args) {
+        print!("{}", cli::version());
+        return Ok(());
+    }
     if flags::is_bypass(git_args) {
         return git::run_git_commit_passthrough(git_args);
     }
