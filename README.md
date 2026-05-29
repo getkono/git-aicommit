@@ -23,13 +23,22 @@ Large diffs are truncated at 60KB to keep the prompt sane.
 
 ## Install
 
+**Homebrew** (macOS and Linux):
+
+```sh
+brew install getkono/tap/git-aicommit
+```
+
+`git-aicommit` calls the [`claude`](https://docs.claude.com/en/docs/claude-code) CLI (not in Homebrew) and
+`git` ≥ 2.36 at runtime — see [Requirements](#requirements). `brew info getkono/tap/git-aicommit` repeats this.
+
 **From crates.io** (requires Rust):
 
 ```sh
 cargo install git-aicommit
 ```
 
-**Pre-built binary** — download from the [latest release](https://github.com/getkono/git-ai-commits/releases/latest),
+**Pre-built binary** — download from the [latest release](https://github.com/getkono/git-aicommit/releases/latest),
 extract, and copy to a directory on your `$PATH`:
 
 ```sh
