@@ -119,3 +119,89 @@ jobs:
         run: cargo publish
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+
+  update-tap:
+    name: Update Homebrew tap
+    needs: [build, release]
+    runs-on: ubuntu-latest
+    # Only on the canonical repo; forks can't have the secret. Together with the
+    # token check below, this keeps the job a clean no-op until the maintainer
+    # sets up the tap, so releases never fail on account of it.
+    if: ${{ github.repository == 'getkono/git-aicommit' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+
+      - name: Render formula
+        id: render
+        shell: bash
+        env:
+          HAVE_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN != '' }}
+        run: |
+          set -euo pipefail
+          if [[ "$HAVE_TOKEN" != "true" ]]; then
+            echo "HOMEBREW_TAP_TOKEN not set — skipping Homebrew tap update."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          VERSION="${GITHUB_REF_NAME#v}"
+
+          # SHA-256 of each release tarball, computed from the local build
+          # artifacts (correct regardless of CDN propagation). set -e aborts if
+          # any tarball is missing, so an empty hash can't slip into the formula.
+          sha() { sha256sum "git-aicommit-$1.tar.gz" | cut -d' ' -f1; }
+          LINUX_X86="$(sha x86_64-unknown-linux-musl)"
+          LINUX_ARM="$(sha aarch64-unknown-linux-musl)"
+          MAC_X86="$(sha x86_64-apple-darwin)"
+          MAC_ARM="$(sha aarch64-apple-darwin)"
+
+          mkdir -p rendered
+          sed \
+            -e "s/__VERSION__/${VERSION}/g" \
+            -e "s/__SHA256_X86_64_UNKNOWN_LINUX_MUSL__/${LINUX_X86}/g" \
+            -e "s/__SHA256_AARCH64_UNKNOWN_LINUX_MUSL__/${LINUX_ARM}/g" \
+            -e "s/__SHA256_X86_64_APPLE_DARWIN__/${MAC_X86}/g" \
+            -e "s/__SHA256_AARCH64_APPLE_DARWIN__/${MAC_ARM}/g" \
+            .github/homebrew/git-aicommit.rb > rendered/git-aicommit.rb
+
+          # Fail loudly if any placeholder survived (e.g. an artifact was renamed
+          # in the build job) rather than pushing a broken formula to the tap.
+          if grep -q "__" rendered/git-aicommit.rb; then
+            echo "::error::Unsubstituted placeholder remains in the rendered formula"
+            grep -n "__" rendered/git-aicommit.rb
+            exit 1
+          fi
+
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Check out the Homebrew tap
+        if: steps.render.outputs.skip != 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: getkono/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: tap
+
+      - name: Commit and push the updated formula
+        if: steps.render.outputs.skip != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p tap/Formula
+          cp rendered/git-aicommit.rb tap/Formula/git-aicommit.rb
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/git-aicommit.rb
+          if git diff --cached --quiet; then
+            echo "Formula already up to date — nothing to commit."
+            exit 0
+          fi
+          git commit -m "git-aicommit ${{ steps.render.outputs.version }}"
+          git push
