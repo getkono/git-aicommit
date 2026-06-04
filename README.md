@@ -8,7 +8,7 @@ A tiny Rust CLI that drafts a commit message from your staged changes using
 
 1. Parses standard `git commit` flags (see [Supported flags](#supported-flags)) to decide what to diff and how to prompt.
 2. Checks you're in a git repo and that there's something to commit.
-3. For plain and `--amend` commits, runs `git hook run --ignore-missing pre-commit` as an early check — if hooks fail, the tool aborts before making any API call. (For `-a` and pathspec commits the staged index isn't what gets committed, so hooks run at commit time instead.)
+3. For plain and `--amend` commits, runs the `pre-commit` hook as an early check (`git hook run` on Git ≥ 2.36, executing the hook script directly on older git) — if it fails, the tool aborts before making any API call. (For `-a` and pathspec commits the staged index isn't what gets committed, so hooks run at commit time instead.)
 4. Feeds the relevant diff to `claude -p --model haiku` over stdin.
 5. Cleans up the response and runs `git commit -e -m "<message>" …`, inheriting your terminal so `$EDITOR` opens normally.
 
@@ -17,7 +17,7 @@ Large diffs are truncated at 60KB to keep the prompt sane.
 ## Requirements
 
 - Rust (stable)
-- `git` ≥ 2.36 (for `git hook run`)
+- `git` (any reasonably recent version; the pre-commit pre-check uses `git hook run` on ≥ 2.36 and falls back to running the hook script directly on older git)
 - [`claude`](https://docs.claude.com/en/docs/claude-code) CLI, installed and authenticated
   (tested with Claude Code 2.x; requires a version that supports `--output-format json` and `--disable-slash-commands`)
 
@@ -30,7 +30,7 @@ brew install getkono/tap/git-aicommit
 ```
 
 `git-aicommit` calls the [`claude`](https://docs.claude.com/en/docs/claude-code) CLI (not in Homebrew) and
-`git` ≥ 2.36 at runtime — see [Requirements](#requirements). `brew info getkono/tap/git-aicommit` repeats this.
+`git` at runtime — see [Requirements](#requirements). `brew info getkono/tap/git-aicommit` repeats this.
 
 **From crates.io** (requires Rust):
 

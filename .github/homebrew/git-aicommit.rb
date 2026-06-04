@@ -39,7 +39,7 @@ class GitAicommit < Formula
   def caveats
     <<~EOS
       git-aicommit shells out to two tools this formula does NOT install:
-        * git >= 2.36   (brew install git, or use your system git)
+        * git           (brew install git, or use your system git)
         * claude        the Claude Code CLI, which is not available in Homebrew.
                         Install and authenticate it per:
                         https://docs.claude.com/en/docs/claude-code

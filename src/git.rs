@@ -3,6 +3,7 @@
 //! (`build_diff_args`, `build_commit_args`, `resolve_base`) assemble argument
 //! vectors; the `Result`-returning functions actually invoke git.
 
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use crate::error::{Error, Result};
@@ -159,22 +160,133 @@ pub(crate) fn previous_commit_message() -> Result<String> {
 }
 
 /// Run the pre-commit hook for an early check (before spending Claude tokens).
+///
+/// `git hook run` only exists in Git ≥ 2.36; on older git it fails with
+/// "'hook' is not a git command" (issue #18). There we fall back to locating
+/// and executing the hook script directly.
 pub(crate) fn run_pre_commit_hook() -> Result<()> {
     eprintln!("running pre-commit hooks…");
-    let hook_status = Command::new("git")
+    if supports_hook_run() {
+        run_pre_commit_via_hook_run()
+    } else {
+        run_pre_commit_directly()
+    }
+}
+
+/// Whether `git hook run` is available (Git ≥ 2.36). Defaults to `false` when
+/// the version can't be determined, since the direct fallback works everywhere.
+fn supports_hook_run() -> bool {
+    matches!(git_version(), Some(v) if v >= (2, 36))
+}
+
+/// Read `git --version` and parse it into a (major, minor) pair.
+fn git_version() -> Option<(u32, u32)> {
+    let out = Command::new("git").arg("--version").output().ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    parse_git_version(&String::from_utf8_lossy(&out.stdout))
+}
+
+/// Extract (major, minor) from a `git version X.Y.Z …` string. Tolerates the
+/// vendor suffixes some builds append, e.g. "git version 2.39.3 (Apple Git-146)".
+fn parse_git_version(s: &str) -> Option<(u32, u32)> {
+    let version = s.split_whitespace().nth(2)?;
+    let mut parts = version.split('.');
+    let major = parts.next()?.parse().ok()?;
+    let minor = parts.next()?.parse().ok()?;
+    Some((major, minor))
+}
+
+/// The modern path: let git find and run the hook (Git ≥ 2.36).
+fn run_pre_commit_via_hook_run() -> Result<()> {
+    let status = Command::new("git")
         .args(["hook", "run", "--ignore-missing", "pre-commit"])
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
         .status()
         .map_err(|e| Error::Git(format!("failed to run pre-commit hooks: {e}")))?;
-    if !hook_status.success() {
+    if !status.success() {
         return Err(Error::Git(format!(
-            "pre-commit hooks failed (exit {hook_status}); fix the issues and try again"
+            "pre-commit hooks failed (exit {status}); fix the issues and try again"
         )));
     }
     eprintln!("pre-commit hooks passed");
     Ok(())
+}
+
+/// The fallback path for Git < 2.36: locate the hook and execute it directly.
+/// Skips silently when no executable hook is present, matching the
+/// `--ignore-missing` behavior of the modern path.
+fn run_pre_commit_directly() -> Result<()> {
+    let Some(hook) = resolve_hook("pre-commit") else {
+        eprintln!("no pre-commit hook found; skipping");
+        return Ok(());
+    };
+    let mut cmd = Command::new(&hook);
+    // git runs hooks from the top level of the working tree; mirror that so
+    // hooks that assume the repo root as their CWD behave identically.
+    if let Some(top) = git_capture(&["rev-parse", "--show-toplevel"]) {
+        cmd.current_dir(top);
+    }
+    let status = cmd
+        .stdin(Stdio::inherit())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .status()
+        .map_err(|e| {
+            Error::Git(format!(
+                "failed to run pre-commit hook {}: {e}",
+                hook.display()
+            ))
+        })?;
+    if !status.success() {
+        return Err(Error::Git(format!(
+            "pre-commit hooks failed (exit {status}); fix the issues and try again"
+        )));
+    }
+    eprintln!("pre-commit hooks passed");
+    Ok(())
+}
+
+/// Absolute path to an executable hook of the given name, honoring
+/// `core.hooksPath`, or `None` when it's absent or not executable.
+fn resolve_hook(name: &str) -> Option<PathBuf> {
+    // `--git-path hooks/<name>` honors core.hooksPath and resolves relative to
+    // the current directory; make it absolute before we change the child's CWD.
+    let raw = git_capture(&["rev-parse", "--git-path", &format!("hooks/{name}")])?;
+    let rel = PathBuf::from(raw);
+    let path = if rel.is_absolute() {
+        rel
+    } else {
+        std::env::current_dir().ok()?.join(rel)
+    };
+    is_executable_file(&path).then_some(path)
+}
+
+/// Run a git command and return its trimmed stdout, or `None` on any failure
+/// (spawn error, non-zero exit, or empty output).
+fn git_capture(args: &[&str]) -> Option<String> {
+    let out = Command::new("git").args(args).output().ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    (!s.is_empty()).then_some(s)
+}
+
+#[cfg(unix)]
+fn is_executable_file(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::metadata(path)
+        .map(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+        .unwrap_or(false)
+}
+
+#[cfg(not(unix))]
+fn is_executable_file(path: &Path) -> bool {
+    path.is_file()
 }
 
 /// Assemble the final `git commit …` argument vector.
@@ -243,6 +355,32 @@ mod tests {
     /// Vec<String> from &str literals, for ergonomic assert_eq! comparisons.
     fn v(items: &[&str]) -> Vec<String> {
         items.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn git_version_parsing() {
+        assert_eq!(parse_git_version("git version 2.34.1"), Some((2, 34)));
+        assert_eq!(parse_git_version("git version 2.54.0\n"), Some((2, 54)));
+        assert_eq!(
+            parse_git_version("git version 2.39.3 (Apple Git-146)"),
+            Some((2, 39))
+        );
+        // Two-component versions still parse.
+        assert_eq!(parse_git_version("git version 3.0"), Some((3, 0)));
+        // Garbage and short output yield None rather than panicking.
+        assert_eq!(parse_git_version("nonsense"), None);
+        assert_eq!(parse_git_version(""), None);
+        assert_eq!(parse_git_version("git version vNext"), None);
+    }
+
+    #[test]
+    fn hook_run_gated_at_2_36() {
+        // `git hook run` landed in 2.36; the boundary must be exact.
+        assert!((2, 36) >= (2, 36));
+        assert!((2, 37) >= (2, 36));
+        assert!((3, 0) >= (2, 36));
+        assert!((2, 35) < (2, 36));
+        assert!((2, 34) < (2, 36));
     }
 
     #[test]
