@@ -117,5 +117,12 @@ fn run(model: &str, git_args: &[String]) -> Result<()> {
         eprintln!("\nopening editor to review commit message…");
     }
     let commit_args = git::build_commit_args(&message, &p, early_check);
-    git::final_commit(&commit_args)
+    git::final_commit(&commit_args)?;
+
+    // 10. Push, if asked. Only reached when the commit succeeded (an aborted or
+    //     failed `git commit` returns above), so we never push without a commit.
+    if p.push {
+        git::push()?;
+    }
+    Ok(())
 }

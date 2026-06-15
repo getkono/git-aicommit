@@ -331,6 +331,25 @@ pub(crate) fn final_commit(commit_args: &[String]) -> Result<()> {
     Ok(())
 }
 
+/// Run `git push` after a successful commit (for `--push`), inheriting stdio so
+/// credential prompts and progress are visible. Issues a bare `git push`, so git
+/// decides the destination from the branch's configured upstream/remote —
+/// exactly as running `git push` by hand would.
+pub(crate) fn push() -> Result<()> {
+    eprintln!("\npushing…");
+    let status = Command::new("git")
+        .arg("push")
+        .stdin(Stdio::inherit())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .status()
+        .map_err(|e| Error::Git(format!("failed to run `git push`: {e}")))?;
+    if !status.success() {
+        return Err(Error::Git(format!("`git push` exited with {status}")));
+    }
+    Ok(())
+}
+
 /// Run `git commit` with the user's raw args, inheriting stdio. Used for bypass
 /// modes (`--fixup`, `-C`, …) where there's nothing for the AI to generate.
 pub(crate) fn run_git_commit_passthrough(git_args: &[String]) -> Result<()> {

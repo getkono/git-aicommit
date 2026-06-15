@@ -20,6 +20,8 @@ pub(crate) struct ParsedArgs {
     pub(crate) amend: bool,
     pub(crate) interactive: Option<Interactive>,
     pub(crate) dry_run: bool,
+    /// Run `git push` after a successful commit (our own flag, not `git commit`'s).
+    pub(crate) push: bool,
     pub(crate) no_edit: bool,
     pub(crate) no_verify: bool,
     pub(crate) allow_empty: bool,
@@ -131,6 +133,9 @@ pub(crate) fn classify_args(git_args: &[String]) -> Result<ParsedArgs> {
                 "patch" => p.interactive = Some(Interactive::Patch),
                 "interactive" => p.interactive = Some(Interactive::Interactive),
                 "dry-run" => p.dry_run = true,
+                // Our own flag: `git push` after a successful commit. Not a
+                // `git commit` flag, so it is intercepted and never forwarded.
+                "push" => p.push = true,
                 "edit" => {} // we always add `-e` ourselves
                 "no-edit" => {
                     p.no_edit = true;
@@ -367,6 +372,20 @@ mod tests {
         assert_eq!(parse(&["-s"]).passthrough, v(&["-s"]));
         assert_eq!(parse(&["--signoff"]).passthrough, v(&["--signoff"]));
         assert!(parse(&["--dry-run"]).dry_run);
+    }
+
+    #[test]
+    fn push_flag() {
+        let p = parse(&["--push"]);
+        assert!(p.push);
+        // `--push` is ours; it must not leak through to `git commit`.
+        assert!(p.passthrough.is_empty());
+        // Off by default.
+        assert!(!parse(&[]).push);
+        // Travels alongside other flags without being forwarded.
+        let p = parse(&["-a", "--push"]);
+        assert!(p.all && p.push);
+        assert_eq!(p.passthrough, v(&["-a"]));
     }
 
     #[test]
