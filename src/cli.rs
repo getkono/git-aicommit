@@ -59,6 +59,7 @@ HANDLED BY git-aicommit:
         --interactive   Interactively stage via `git add -i` first.
         --amend         Regenerate the message for an amended commit (prev message + combined diff).
         --dry-run       Print the diff and generated message, then exit without committing.
+        --push          Run `git push` after the commit succeeds.
     <pathspec>...       Limit the commit (and the AI's context) to these paths.
 
 FORWARDED to `git commit` verbatim:

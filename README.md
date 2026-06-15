@@ -99,6 +99,14 @@ git aicommit --no-verify --signoff
 git aicommit --dry-run         # print the diff + generated message, then exit
 ```
 
+**Push after committing:**
+
+```sh
+git aicommit -a --push         # run `git push` once the commit succeeds
+```
+
+`--push` runs a bare `git push` (so git uses the branch's configured upstream/remote) only after the commit goes through — if you abort the commit or it fails, nothing is pushed.
+
 **Bypass the AI entirely** — when the message already comes from elsewhere, git handles the commit directly with no API call:
 
 ```sh
