@@ -109,6 +109,38 @@ pub(crate) fn build_diff_args(p: &ParsedArgs, base: &str) -> Vec<String> {
     args
 }
 
+/// Build the `git diff --stat …` argument vector, mirroring [`build_diff_args`]'s
+/// cached/scope decisions so the inventory matches what the commit records.
+pub(crate) fn build_diff_stat_args(p: &ParsedArgs, base: &str) -> Vec<String> {
+    let working_tree = p.interactive.is_none() && (p.all || !p.pathspecs.is_empty());
+    let mut args = vec!["diff".to_string()];
+    if !working_tree {
+        args.push("--cached".to_string());
+    }
+    args.push("--stat".to_string());
+    args.push("--no-color".to_string());
+    args.push(base.to_string());
+    if p.scoped() {
+        args.push("--".to_string());
+        args.extend(p.pathspecs.iter().cloned());
+    }
+    args
+}
+
+/// Run `git diff --stat …` and return the changed-file inventory (trimmed), or an
+/// empty string on any failure. Best-effort: this header enriches the prompt but
+/// must never block a commit, so errors are swallowed.
+pub(crate) fn read_diff_stat(p: &ParsedArgs, base: &str) -> String {
+    let args = build_diff_stat_args(p, base);
+    let Ok(out) = Command::new("git").args(&args).output() else {
+        return String::new();
+    };
+    if !out.status.success() {
+        return String::new();
+    }
+    String::from_utf8_lossy(&out.stdout).trim().to_string()
+}
+
 /// The diff text plus the number of files it touches.
 pub(crate) struct Diff {
     pub(crate) text: String,
@@ -520,6 +552,34 @@ mod tests {
         assert_eq!(
             build_diff_args(&inter, "HEAD"),
             v(&["diff", "--cached", "--no-color", "HEAD"])
+        );
+    }
+
+    #[test]
+    fn diff_stat_args_mirror_diff_args() {
+        // Same cached/scope decisions as build_diff_args, with `--stat`.
+        let plain = ParsedArgs::default();
+        assert_eq!(
+            build_diff_stat_args(&plain, "HEAD"),
+            v(&["diff", "--cached", "--stat", "--no-color", "HEAD"])
+        );
+
+        let all = ParsedArgs {
+            all: true,
+            ..Default::default()
+        };
+        assert_eq!(
+            build_diff_stat_args(&all, "HEAD"),
+            v(&["diff", "--stat", "--no-color", "HEAD"])
+        );
+
+        let path = ParsedArgs {
+            pathspecs: v(&["f"]),
+            ..Default::default()
+        };
+        assert_eq!(
+            build_diff_stat_args(&path, "HEAD"),
+            v(&["diff", "--stat", "--no-color", "HEAD", "--", "f"])
         );
     }
 }

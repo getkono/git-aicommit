@@ -59,6 +59,11 @@ fn run(model: &str, git_args: &[String]) -> Result<()> {
         d.text
     };
 
+    // 3b. Read the changed-file inventory (`git diff --stat`) as a complete
+    //     checklist, so a small change buried in — or truncated out of — a large
+    //     diff is still surfaced to the model. Best-effort: empty on failure.
+    let diff_stat = git::read_diff_stat(&p, &base);
+
     // 4. Truncate the diff if it's huge, on a char boundary so we never split UTF-8.
     let diff_for_prompt = prompt::truncate_diff(&diff);
 
@@ -89,7 +94,7 @@ fn run(model: &str, git_args: &[String]) -> Result<()> {
     } else {
         None
     };
-    let payload = prompt::build_stdin_payload(&diff_for_prompt, prev_msg.as_deref());
+    let payload = prompt::build_stdin_payload(&diff_for_prompt, &diff_stat, prev_msg.as_deref());
 
     // 7. Run claude in non-interactive print mode with minimal context.
     let message = {
