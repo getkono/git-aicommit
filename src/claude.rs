@@ -46,23 +46,55 @@ impl Generated {
     }
 }
 
+/// Diffs at or above this many bytes escalate from haiku to a stronger model.
+const ESCALATE_DIFF_BYTES: usize = 16_000;
+/// Diffs touching at least this many files escalate too — many small, unrelated
+/// changes are exactly where a single-pass summary tends to drop detail.
+const ESCALATE_FILE_COUNT: usize = 8;
+
+/// Choose the model (and thinking effort) for a diff of the given size, used when
+/// the user didn't pin one with `--model`. Small diffs stay on fast, cheap haiku
+/// at the default effort; large or many-file diffs escalate to sonnet with
+/// `medium` effort so secondary changes aren't lost in the summary.
+pub(crate) fn auto_select(
+    diff_len: usize,
+    file_count: usize,
+) -> (&'static str, Option<&'static str>) {
+    if diff_len >= ESCALATE_DIFF_BYTES || file_count >= ESCALATE_FILE_COUNT {
+        ("sonnet", Some("medium"))
+    } else {
+        ("haiku", None)
+    }
+}
+
 /// Run `claude` in non-interactive print mode with minimal context, feeding the
-/// payload on stdin, and return the cleaned message plus usage stats.
-pub(crate) fn generate(model: &str, system_prompt: &str, payload: &str) -> Result<Generated> {
+/// payload on stdin, and return the cleaned message plus usage stats. When
+/// `effort` is `Some`, it is passed through as `--effort <level>`.
+pub(crate) fn generate(
+    model: &str,
+    effort: Option<&str>,
+    system_prompt: &str,
+    payload: &str,
+) -> Result<Generated> {
+    let mut args = vec![
+        "-p",
+        "--model",
+        model,
+        "--output-format",
+        "json",
+        "--tools",
+        "",
+        "--no-session-persistence",
+        "--disable-slash-commands",
+        "--system-prompt",
+        system_prompt,
+    ];
+    if let Some(level) = effort {
+        args.push("--effort");
+        args.push(level);
+    }
     let mut child = Command::new("claude")
-        .args([
-            "-p",
-            "--model",
-            model,
-            "--output-format",
-            "json",
-            "--tools",
-            "",
-            "--no-session-persistence",
-            "--disable-slash-commands",
-            "--system-prompt",
-            system_prompt,
-        ])
+        .args(&args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -168,6 +200,25 @@ mod tests {
         assert_eq!(clean_message("```\nhello\n```"), "hello");
         assert_eq!(clean_message("```text\nhello\nworld\n```"), "hello\nworld");
         assert_eq!(clean_message("  hello  "), "hello");
+    }
+
+    #[test]
+    fn auto_select_tiers() {
+        // Small diff, few files → haiku, default effort.
+        assert_eq!(auto_select(0, 0), ("haiku", None));
+        assert_eq!(
+            auto_select(ESCALATE_DIFF_BYTES - 1, ESCALATE_FILE_COUNT - 1),
+            ("haiku", None)
+        );
+        // Either threshold (size or file count) escalates to sonnet + effort.
+        assert_eq!(
+            auto_select(ESCALATE_DIFF_BYTES, 1),
+            ("sonnet", Some("medium"))
+        );
+        assert_eq!(
+            auto_select(100, ESCALATE_FILE_COUNT),
+            ("sonnet", Some("medium"))
+        );
     }
 
     #[test]

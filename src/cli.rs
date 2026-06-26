@@ -11,9 +11,10 @@ use clap::Parser;
 )]
 pub(crate) struct Args {
     /// Claude model to use (passed directly to `claude --model`).
-    /// Must come before any git flags.
-    #[arg(long, default_value = "haiku")]
-    pub(crate) model: String,
+    /// Must come before any git flags. When omitted, the model is chosen
+    /// automatically from the diff size (see `claude::auto_select`).
+    #[arg(long)]
+    pub(crate) model: Option<String>,
 
     /// Standard `git commit` flags. Recognized flags steer how the message is
     /// generated; everything else is forwarded verbatim to `git commit`.
@@ -50,7 +51,9 @@ USAGE:
     git aicommit [--model <name>] [git commit flags] [-- <pathspec>...]
 
 HANDLED BY git-aicommit:
-    --model <name>      Claude model to use (default: haiku). Must come first.
+    --model <name>      Claude model to use. Must come first. When omitted, it is
+                        chosen automatically: haiku for small diffs, sonnet (with
+                        higher effort) for large or many-file ones.
     -V, --version       Print version, build metadata, and binary path, then exit.
     -m, --message <s>   Steer the AI with an instruction (NOT a literal message). Repeatable.
     -t, --template <f>  Make the AI follow the format/structure in file <f>.
