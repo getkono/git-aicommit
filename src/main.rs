@@ -110,8 +110,9 @@ fn run(model: &str, git_args: &[String]) -> Result<()> {
         return Ok(());
     }
 
-    // 9. Hand off to `git commit` so the user can review/edit (unless --no-edit).
-    if p.no_edit {
+    // 9. Hand off to `git commit` so the user can review/edit (unless the editor
+    //    is skipped via `-y`/`--yes` or `--no-edit`).
+    if p.skip_editor() {
         eprintln!();
     } else {
         eprintln!("\nopening editor to review commit message…");

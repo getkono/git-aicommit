@@ -292,7 +292,7 @@ fn is_executable_file(path: &Path) -> bool {
 /// Assemble the final `git commit …` argument vector.
 pub(crate) fn build_commit_args(message: &str, p: &ParsedArgs, add_no_verify: bool) -> Vec<String> {
     let mut args = vec!["commit".to_string()];
-    if !p.no_edit {
+    if !p.skip_editor() {
         args.push("-e".to_string());
     }
     args.push("-m".to_string());
@@ -424,6 +424,18 @@ mod tests {
         };
         let a = build_commit_args("hi", &p, false);
         assert_eq!(a, v(&["commit", "-m", "hi", "--no-edit"]));
+        assert!(!a.contains(&"-e".to_string()));
+    }
+
+    #[test]
+    fn commit_args_yes_skips_editor() {
+        // `-y` skips `-e` like `--no-edit`, but is never forwarded to git.
+        let p = ParsedArgs {
+            yes: true,
+            ..Default::default()
+        };
+        let a = build_commit_args("hi", &p, false);
+        assert_eq!(a, v(&["commit", "-m", "hi"]));
         assert!(!a.contains(&"-e".to_string()));
     }
 
