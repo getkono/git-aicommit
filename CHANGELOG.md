@@ -5,6 +5,27 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.5](https://github.com/getkono/git-aicommit/releases/tag/v1.3.5) - 2026-06-26
+
+### Features
+
+- Auto-select model and effort from diff size
+- Add -y/--yes to commit without opening the editor
+
+### Bug Fixes
+
+- Keep small and unrelated changes in generated messages
+
+### Documentation
+
+- Document automatic model selection
+- Document the -y/--yes flag
+- Note multi-change commit message behavior
+
+### CI/Build
+
+- Bump actions/* to v5 to clear Node 20 deprecation
+
 ## [0.3.4](https://github.com/getkono/git-aicommit/releases/tag/v0.3.4) - 2026-06-15
 
 ### Features
