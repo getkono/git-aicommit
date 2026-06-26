@@ -124,5 +124,6 @@ git aicommit -- --weird-filename
 ## Notes
 
 - The prompt asks for Conventional Commits style (`feat:`, `fix:`, etc.), imperative subject ≤72 chars, optional body explaining the *why*.
+- When a commit bundles several unrelated changes, the message leads with the primary one in the subject and itemizes the rest as body bullets. A `git diff --stat` inventory of every changed file is sent alongside the diff so small or buried changes aren't dropped.
 - By default the editor opens so you can review before committing; quit with an empty message to abort. `--no-edit` commits the generated message directly, and `--dry-run` never commits.
 - No API key handling here; auth is delegated entirely to the `claude` CLI.
