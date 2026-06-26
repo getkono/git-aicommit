@@ -14,7 +14,7 @@ use spinner::Spinner;
 
 fn main() {
     let args = Args::parse();
-    if let Err(e) = run(&args.model, &args.git_args) {
+    if let Err(e) = run(args.model.as_deref(), &args.git_args) {
         eprintln!("error: {e}");
         std::process::exit(1);
     }
@@ -22,8 +22,9 @@ fn main() {
 
 /// Orchestrate the whole flow: classify flags, read the diff, build the prompt,
 /// ask Claude for a message, then hand off to `git commit`. Each phase delegates
-/// to a focused module; this function just sequences them.
-fn run(model: &str, git_args: &[String]) -> Result<()> {
+/// to a focused module; this function just sequences them. `user_model` is the
+/// explicit `--model`, or `None` to auto-pick from the diff size.
+fn run(user_model: Option<&str>, git_args: &[String]) -> Result<()> {
     // 0. Short-circuits that do no AI work.
     if flags::wants_help(git_args) {
         print!("{}", cli::HELP);
@@ -52,11 +53,11 @@ fn run(model: &str, git_args: &[String]) -> Result<()> {
     // 3. Read the diff for the AI, matching what the commit will record.
     let base = git::resolve_base(&p)?;
     let diff_args = git::build_diff_args(&p, &base);
-    let diff = {
+    let (diff, file_count) = {
         let sp = Spinner::new("reading changes…");
         let d = git::read_diff(&p, &diff_args)?;
         sp.finish(format!("changes ready  ({} file(s))", d.file_count));
-        d.text
+        (d.text, d.file_count)
     };
 
     // 3b. Read the changed-file inventory (`git diff --stat`) as a complete
@@ -66,6 +67,24 @@ fn run(model: &str, git_args: &[String]) -> Result<()> {
 
     // 4. Truncate the diff if it's huge, on a char boundary so we never split UTF-8.
     let diff_for_prompt = prompt::truncate_diff(&diff);
+
+    // 4b. Resolve the model: honor an explicit `--model`, otherwise auto-pick from
+    //     the full (pre-truncation) diff size and file count. Announce an
+    //     escalation away from haiku prominently, on its own line.
+    let (model, effort): (String, Option<&str>) = match user_model {
+        Some(m) => (m.to_string(), None),
+        None => {
+            let (m, e) = claude::auto_select(diff.len(), file_count);
+            if m != "haiku" {
+                let effort_note = e.map(|lvl| format!(" (effort {lvl})")).unwrap_or_default();
+                eprintln!(
+                    "auto-selected model: {m}{effort_note} — large diff ({}, {file_count} file(s))",
+                    fmt_size(diff.len()),
+                );
+            }
+            (m.to_string(), e)
+        }
+    };
 
     // 5. Early pre-commit hook check — only when the index equals what we'll
     //    commit (plain/amend/interactive). For `-a` and pathspec(`--only`) modes
@@ -99,7 +118,7 @@ fn run(model: &str, git_args: &[String]) -> Result<()> {
     // 7. Run claude in non-interactive print mode with minimal context.
     let message = {
         let sp = Spinner::new(&format!("generating commit message with claude {model}…"));
-        let generated = claude::generate(model, &system_prompt, &payload)?;
+        let generated = claude::generate(&model, effort, &system_prompt, &payload)?;
         sp.finish(format!(
             "commit message generated  ({})",
             generated.metrics_line()
@@ -115,8 +134,9 @@ fn run(model: &str, git_args: &[String]) -> Result<()> {
         return Ok(());
     }
 
-    // 9. Hand off to `git commit` so the user can review/edit (unless --no-edit).
-    if p.no_edit {
+    // 9. Hand off to `git commit` so the user can review/edit (unless the editor
+    //    is skipped via `-y`/`--yes` or `--no-edit`).
+    if p.skip_editor() {
         eprintln!();
     } else {
         eprintln!("\nopening editor to review commit message…");
@@ -130,4 +150,26 @@ fn run(model: &str, git_args: &[String]) -> Result<()> {
         git::push()?;
     }
     Ok(())
+}
+
+/// Human-readable byte size for the auto-model notice, e.g. 48128 -> "47 KB".
+fn fmt_size(bytes: usize) -> String {
+    if bytes >= 1024 {
+        format!("{} KB", bytes / 1024)
+    } else {
+        format!("{bytes} B")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fmt_size_units() {
+        assert_eq!(fmt_size(0), "0 B");
+        assert_eq!(fmt_size(1023), "1023 B");
+        assert_eq!(fmt_size(1024), "1 KB");
+        assert_eq!(fmt_size(48_128), "47 KB");
+    }
 }

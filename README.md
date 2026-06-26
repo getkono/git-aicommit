@@ -1,15 +1,17 @@
 # git-aicommit
 
 A tiny Rust CLI that drafts a commit message from your staged changes using
-[Claude Code](https://docs.claude.com/en/docs/claude-code) (Haiku), then opens
+[Claude Code](https://docs.claude.com/en/docs/claude-code), then opens
 `git commit` with the message pre-filled so you can review, edit, or abort.
+The model is picked automatically from the diff size — Haiku for everyday
+commits, Sonnet for large ones — or pinned with `--model`.
 
 ## How it works
 
 1. Parses standard `git commit` flags (see [Supported flags](#supported-flags)) to decide what to diff and how to prompt.
 2. Checks you're in a git repo and that there's something to commit.
 3. For plain and `--amend` commits, runs the `pre-commit` hook as an early check (`git hook run` on Git ≥ 2.36, executing the hook script directly on older git) — if it fails, the tool aborts before making any API call. (For `-a` and pathspec commits the staged index isn't what gets committed, so hooks run at commit time instead.)
-4. Feeds the relevant diff to `claude -p --model haiku` over stdin.
+4. Picks a model from the diff size (Haiku by default; Sonnet with higher effort for large or many-file diffs, announced on its own line) unless you pin one with `--model`, then feeds the relevant diff to `claude -p` over stdin.
 5. Cleans up the response and runs `git commit -e -m "<message>" …`, inheriting your terminal so `$EDITOR` opens normally.
 
 Large diffs are truncated at 60KB to keep the prompt sane.
@@ -65,7 +67,7 @@ git aicommit
 
 Your editor opens with the AI-generated message. Save to commit, or quit with an empty message to abort.
 
-`git aicommit` aims to be a drop-in for `git commit`: it understands the common flags and forwards anything else straight through. Pass `--model` (if you use it) before any git flags; run `git aicommit --help` for a summary, or `git aicommit --version` to print the version, build metadata, and binary path.
+`git aicommit` aims to be a drop-in for `git commit`: it understands the common flags and forwards anything else straight through. By default it auto-selects the model from the diff size (`haiku`, or `sonnet` with higher effort for large/many-file diffs, announced when it isn't haiku); pass `--model <name>` to pin one (before any git flags). Run `git aicommit --help` for a summary, or `git aicommit --version` to print the version, build metadata, and binary path.
 
 ### Supported flags
 
@@ -99,6 +101,15 @@ git aicommit --no-verify --signoff
 git aicommit --dry-run         # print the diff + generated message, then exit
 ```
 
+**Commit without reviewing:**
+
+```sh
+git aicommit -y                # commit the generated message directly, no editor
+```
+
+`-y`/`--yes` skips the editor review and commits the generated message as-is. It
+does **not** skip hooks — use `-n`/`--no-verify` for that.
+
 **Push after committing:**
 
 ```sh
@@ -125,5 +136,5 @@ git aicommit -- --weird-filename
 
 - The prompt asks for Conventional Commits style (`feat:`, `fix:`, etc.), imperative subject ≤72 chars, optional body explaining the *why*.
 - When a commit bundles several unrelated changes, the message leads with the primary one in the subject and itemizes the rest as body bullets. A `git diff --stat` inventory of every changed file is sent alongside the diff so small or buried changes aren't dropped.
-- By default the editor opens so you can review before committing; quit with an empty message to abort. `--no-edit` commits the generated message directly, and `--dry-run` never commits.
+- By default the editor opens so you can review before committing; quit with an empty message to abort. `-y`/`--yes` (or `--no-edit`) commits the generated message directly, and `--dry-run` never commits.
 - No API key handling here; auth is delegated entirely to the `claude` CLI.
