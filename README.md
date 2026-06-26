@@ -99,6 +99,15 @@ git aicommit --no-verify --signoff
 git aicommit --dry-run         # print the diff + generated message, then exit
 ```
 
+**Commit without reviewing:**
+
+```sh
+git aicommit -y                # commit the generated message directly, no editor
+```
+
+`-y`/`--yes` skips the editor review and commits the generated message as-is. It
+does **not** skip hooks — use `-n`/`--no-verify` for that.
+
 **Push after committing:**
 
 ```sh
@@ -124,5 +133,5 @@ git aicommit -- --weird-filename
 ## Notes
 
 - The prompt asks for Conventional Commits style (`feat:`, `fix:`, etc.), imperative subject ≤72 chars, optional body explaining the *why*.
-- By default the editor opens so you can review before committing; quit with an empty message to abort. `--no-edit` commits the generated message directly, and `--dry-run` never commits.
+- By default the editor opens so you can review before committing; quit with an empty message to abort. `-y`/`--yes` (or `--no-edit`) commits the generated message directly, and `--dry-run` never commits.
 - No API key handling here; auth is delegated entirely to the `claude` CLI.
