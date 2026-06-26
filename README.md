@@ -1,15 +1,17 @@
 # git-aicommit
 
 A tiny Rust CLI that drafts a commit message from your staged changes using
-[Claude Code](https://docs.claude.com/en/docs/claude-code) (Haiku), then opens
+[Claude Code](https://docs.claude.com/en/docs/claude-code), then opens
 `git commit` with the message pre-filled so you can review, edit, or abort.
+The model is picked automatically from the diff size — Haiku for everyday
+commits, Sonnet for large ones — or pinned with `--model`.
 
 ## How it works
 
 1. Parses standard `git commit` flags (see [Supported flags](#supported-flags)) to decide what to diff and how to prompt.
 2. Checks you're in a git repo and that there's something to commit.
 3. For plain and `--amend` commits, runs the `pre-commit` hook as an early check (`git hook run` on Git ≥ 2.36, executing the hook script directly on older git) — if it fails, the tool aborts before making any API call. (For `-a` and pathspec commits the staged index isn't what gets committed, so hooks run at commit time instead.)
-4. Feeds the relevant diff to `claude -p --model haiku` over stdin.
+4. Picks a model from the diff size (Haiku by default; Sonnet with higher effort for large or many-file diffs, announced on its own line) unless you pin one with `--model`, then feeds the relevant diff to `claude -p` over stdin.
 5. Cleans up the response and runs `git commit -e -m "<message>" …`, inheriting your terminal so `$EDITOR` opens normally.
 
 Large diffs are truncated at 60KB to keep the prompt sane.
@@ -65,7 +67,7 @@ git aicommit
 
 Your editor opens with the AI-generated message. Save to commit, or quit with an empty message to abort.
 
-`git aicommit` aims to be a drop-in for `git commit`: it understands the common flags and forwards anything else straight through. Pass `--model` (if you use it) before any git flags; run `git aicommit --help` for a summary, or `git aicommit --version` to print the version, build metadata, and binary path.
+`git aicommit` aims to be a drop-in for `git commit`: it understands the common flags and forwards anything else straight through. By default it auto-selects the model from the diff size (`haiku`, or `sonnet` with higher effort for large/many-file diffs, announced when it isn't haiku); pass `--model <name>` to pin one (before any git flags). Run `git aicommit --help` for a summary, or `git aicommit --version` to print the version, build metadata, and binary path.
 
 ### Supported flags
 
