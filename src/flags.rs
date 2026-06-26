@@ -22,6 +22,9 @@ pub(crate) struct ParsedArgs {
     pub(crate) dry_run: bool,
     /// Run `git push` after a successful commit (our own flag, not `git commit`'s).
     pub(crate) push: bool,
+    /// Commit the generated message directly, skipping the editor review (our own
+    /// `-y`/`--yes` flag, not a `git commit` flag, so it is never forwarded).
+    pub(crate) yes: bool,
     pub(crate) no_edit: bool,
     pub(crate) no_verify: bool,
     pub(crate) allow_empty: bool,
@@ -47,6 +50,12 @@ impl ParsedArgs {
     /// commit working-tree content that may differ from the index.
     pub(crate) fn commits_index(&self) -> bool {
         !self.all && !self.scoped()
+    }
+
+    /// True when we should commit the generated message directly instead of
+    /// opening the editor — either the friendly `-y`/`--yes` or git's `--no-edit`.
+    pub(crate) fn skip_editor(&self) -> bool {
+        self.yes || self.no_edit
     }
 }
 
@@ -136,6 +145,9 @@ pub(crate) fn classify_args(git_args: &[String]) -> Result<ParsedArgs> {
                 // Our own flag: `git push` after a successful commit. Not a
                 // `git commit` flag, so it is intercepted and never forwarded.
                 "push" => p.push = true,
+                // Our own flag: commit the generated message directly, skipping
+                // the editor. Not a `git commit` flag, so it is never forwarded.
+                "yes" => p.yes = true,
                 "edit" => {} // we always add `-e` ourselves
                 "no-edit" => {
                     p.no_edit = true;
@@ -196,6 +208,9 @@ pub(crate) fn classify_args(git_args: &[String]) -> Result<ParsedArgs> {
                         p.passthrough.push("-n".to_string());
                     }
                     'p' => p.interactive = Some(Interactive::Patch),
+                    // Our own flag: skip the editor and commit directly. Like
+                    // `--push`/`-y`, intercepted and never forwarded to git.
+                    'y' => p.yes = true,
                     'm' | 't' => {
                         let rest = &body[idx + c.len_utf8()..];
                         let v = if rest.is_empty() {
@@ -385,6 +400,27 @@ mod tests {
         // Travels alongside other flags without being forwarded.
         let p = parse(&["-a", "--push"]);
         assert!(p.all && p.push);
+        assert_eq!(p.passthrough, v(&["-a"]));
+    }
+
+    #[test]
+    fn yes_flag() {
+        let p = parse(&["--yes"]);
+        assert!(p.yes && p.skip_editor());
+        // `-y`/`--yes` are ours; they must not leak through to `git commit`.
+        assert!(p.passthrough.is_empty());
+        let p = parse(&["-y"]);
+        assert!(p.yes && p.skip_editor());
+        assert!(p.passthrough.is_empty());
+        // Off by default, and `--no-edit` still drives skip_editor too.
+        assert!(!parse(&[]).yes && !parse(&[]).skip_editor());
+        assert!(parse(&["--no-edit"]).skip_editor());
+        // Combines in short bundles without being forwarded.
+        let p = parse(&["-ay"]);
+        assert!(p.all && p.yes);
+        assert_eq!(p.passthrough, v(&["-a"]));
+        let p = parse(&["-ya"]);
+        assert!(p.all && p.yes);
         assert_eq!(p.passthrough, v(&["-a"]));
     }
 
