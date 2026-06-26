@@ -13,6 +13,11 @@ Rules:\n\
 - First line: imperative mood, <= 72 chars, no trailing period.\n\
 - Then a blank line.\n\
 - Then an optional short body (wrapped at ~72 chars) explaining the WHY, not the what.\n\
+- The change may bundle several unrelated edits; do NOT omit the smaller ones. \
+Put the primary change in the subject, then list every other notable or \
+unrelated change as a body bullet (- ...) so none are dropped.\n\
+- When a \"Changed files\" inventory (git diff --stat) precedes the diff, treat it \
+as a checklist: every file with a substantive change should be reflected in the message.\n\
 - Output ONLY the commit message. No code fences, no preamble, no explanation.";
 
 /// Cap the diff we feed Claude so we don't blow the context window / token budget.
@@ -44,13 +49,25 @@ pub(crate) fn build_system_prompt(p: &ParsedArgs, template_contents: Option<&str
     prompt
 }
 
-/// The stdin payload for Claude: the diff, prefixed with the previous commit
-/// message when amending.
-pub(crate) fn build_stdin_payload(diff: &str, prev_msg: Option<&str>) -> String {
-    match prev_msg {
-        Some(m) => format!("Previous commit message:\n{}\n\n---\n\n{diff}", m.trim()),
-        None => diff.to_string(),
+/// The stdin payload for Claude: the diff, prefixed with a changed-file inventory
+/// (`git diff --stat`) so no small change is overlooked, and with the previous
+/// commit message when amending. Empty sections are omitted.
+pub(crate) fn build_stdin_payload(diff: &str, stat: &str, prev_msg: Option<&str>) -> String {
+    let mut payload = String::new();
+    if let Some(m) = prev_msg {
+        payload.push_str(&format!(
+            "Previous commit message:\n{}\n\n---\n\n",
+            m.trim()
+        ));
     }
+    if !stat.trim().is_empty() {
+        payload.push_str(&format!(
+            "Changed files (git diff --stat):\n{}\n\n---\n\n",
+            stat.trim()
+        ));
+    }
+    payload.push_str(diff);
+    payload
 }
 
 /// Truncate the diff to [`MAX_DIFF_BYTES`] on a char boundary (so we never split
@@ -79,11 +96,23 @@ mod tests {
     }
 
     #[test]
-    fn stdin_payload_amend_prefix() {
-        assert_eq!(build_stdin_payload("DIFF", None), "DIFF");
-        let amend = build_stdin_payload("DIFF", Some("old msg\n"));
+    fn stdin_payload_blocks() {
+        // No stat, no previous message → just the diff.
+        assert_eq!(build_stdin_payload("DIFF", "", None), "DIFF");
+
+        // The stat is prepended as a labeled inventory before the diff.
+        let with_stat = build_stdin_payload("DIFF", " file | 2 +-", None);
+        assert!(with_stat.starts_with("Changed files (git diff --stat):\nfile | 2 +-\n\n---\n\n"));
+        assert!(with_stat.ends_with("DIFF"));
+
+        // Amend prefix comes first, then the inventory, then the diff.
+        let amend = build_stdin_payload("DIFF", "stat", Some("old msg\n"));
         assert!(amend.starts_with("Previous commit message:\nold msg\n\n---\n\n"));
+        assert!(amend.contains("Changed files (git diff --stat):\nstat\n\n---\n\n"));
         assert!(amend.ends_with("DIFF"));
+
+        // A blank/whitespace stat is omitted entirely.
+        assert_eq!(build_stdin_payload("DIFF", "   ", None), "DIFF");
     }
 
     #[test]
