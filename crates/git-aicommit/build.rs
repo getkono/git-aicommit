@@ -9,7 +9,7 @@
 //! (where `git` *is* available) and forwards them into the container via
 //! `Cross.toml`; the env override below takes precedence over the local probes.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn main() {
@@ -67,21 +67,39 @@ fn run(cmd: &str, args: &[&str]) -> Option<String> {
 }
 
 /// Re-run when the checked-out commit changes, so an incremental build after a
-/// commit/checkout re-reads the hash. Best effort: skipped for linked worktrees
-/// (`.git` is a file) and packaged sources (no `.git`), where the env override
-/// or `git` probe still supplies the value.
+/// commit/checkout re-reads the hash. The git directory is resolved by asking
+/// `git` rather than assuming `./.git`: this build script runs with its CWD set
+/// to the crate directory, which is two levels below the workspace root, and a
+/// linked worktree's `.git` is a file pointing elsewhere. Best effort: on
+/// packaged sources (no `.git`, no `git`) the env override or the `git` probe
+/// still supplies the value.
 fn watch_git_head() {
-    let head = Path::new(".git/HEAD");
+    let Some(git_dir) = run("git", &["rev-parse", "--absolute-git-dir"]).map(PathBuf::from) else {
+        return;
+    };
+    let head = git_dir.join("HEAD");
     if !head.is_file() {
         return;
     }
-    println!("cargo:rerun-if-changed=.git/HEAD");
-    if let Ok(content) = std::fs::read_to_string(head)
+    watch(&head);
+
+    // A symbolic HEAD (`ref: refs/heads/main`) doesn't change on a new commit —
+    // the ref file it points at does. Packed refs have no such file; skip them.
+    if let Ok(content) = std::fs::read_to_string(&head)
         && let Some(reference) = content.strip_prefix("ref: ")
     {
-        let ref_path = format!(".git/{}", reference.trim());
-        if Path::new(&ref_path).is_file() {
-            println!("cargo:rerun-if-changed={ref_path}");
+        let ref_path = git_dir.join(reference.trim());
+        if ref_path.is_file() {
+            watch(&ref_path);
         }
+    }
+}
+
+/// Emit a `rerun-if-changed` for a path, unless it contains characters cargo
+/// cannot express in a build directive (a newline would forge a second line).
+fn watch(path: &Path) {
+    let Some(p) = path.to_str() else { return };
+    if !p.contains(['\n', '\r']) {
+        println!("cargo:rerun-if-changed={p}");
     }
 }
