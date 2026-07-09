@@ -1,6 +1,38 @@
 # Development Notes
 
+## Layout
+
+A Cargo workspace of two crates:
+
+| Crate | What it is |
+| --- | --- |
+| `crates/aicommit-core` | The library: builds the prompt, picks the model, runs a `Backend`. Frontend-agnostic. Never invokes `git`. |
+| `crates/git-aicommit` | The CLI: parses git-commit flags, shells out to `git`, draws spinners, opens the editor. |
+
+The boundary is enforced by the dependency graph, not by convention — the
+library cannot reach `clap`, `indicatif`, or `git.rs`. Two invariants are worth
+re-checking after any change to the core:
+
+```sh
+cargo tree -p aicommit-core | grep -E 'clap|indicatif'   # must find nothing
+grep -rn 'Command::new' crates/aicommit-core/src/        # must match claude.rs only
+```
+
+The two crates are versioned independently. `git-aicommit` keeps its 1.x line;
+`aicommit-core` moves on its own 0.x cadence, since its API is new and still
+settling.
+
 ## Releasing
+
+> **The `publish` job in `.github/workflows/release.yml` is currently broken.**
+> A bare `cargo publish` does not work at a workspace root. It must publish
+> `aicommit-core` first, wait for the crates.io index to serve that version, and
+> only then publish `git-aicommit`, whose dependency on it cannot resolve any
+> earlier. Fix this before cutting the next release. Also decide whether the
+> library publishes on every tag or only when its API changes — the binary's
+> tags are what drive releases. The build, GitHub-release, and Homebrew-tap jobs
+> are unaffected.
+
 
 Releases are cut with the `just release` recipe, which requires
 [git-cliff](https://git-cliff.org) (`cargo install git-cliff`):
@@ -9,7 +41,7 @@ Releases are cut with the `just release` recipe, which requires
 just release 0.4.0
 ```
 
-This bumps the version in `Cargo.toml`/`Cargo.lock`, prepends a new section to
+This bumps the version in `crates/git-aicommit/Cargo.toml`/`Cargo.lock`, prepends a new section to
 `CHANGELOG.md` for the commits since the last tag, commits, creates an annotated
 `v0.4.0` tag, and pushes — which triggers the GitHub Actions release workflow
 (builds binaries, creates the GitHub release, publishes to crates.io, and updates

@@ -138,3 +138,20 @@ git aicommit -- --weird-filename
 - When a commit bundles several unrelated changes, the message leads with the primary one in the subject and itemizes the rest as body bullets. A `git diff --stat` inventory of every changed file is sent alongside the diff so small or buried changes aren't dropped.
 - By default the editor opens so you can review before committing; quit with an empty message to abort. `-y`/`--yes` (or `--no-edit`) commits the generated message directly, and `--dry-run` never commits.
 - No API key handling here; auth is delegated entirely to the `claude` CLI.
+
+## Using it from your own application
+
+The message-generation logic lives in a separate library crate,
+[`aicommit-core`](crates/aicommit-core), so other frontends can reuse it — an
+editor wanting an AI-drafted message for its commit box, say. Hand it a diff and
+it hands you a string; what you do with that string is yours. It never invokes
+`git`, and its only system dependency is the `claude` CLI — behind a `Backend`
+trait you can replace.
+
+```rust
+let backend = ClaudeCliBackend::from_choice(auto_select(diff.len(), file_count));
+let generated = aicommit_core::generate_commit_message(&request, &backend)?;
+println!("{}", generated.message);
+```
+
+See its [README](crates/aicommit-core/README.md) and `examples/editor.rs`.

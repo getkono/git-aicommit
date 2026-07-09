@@ -108,6 +108,11 @@ jobs:
           body_path: release-notes.md
           generate_release_notes: true
 
+  # TODO(workspace): this job is broken and must be fixed before the next release.
+  # A bare `cargo publish` fails at a workspace root. It needs to publish
+  # `aicommit-core` first, wait for the crates.io index to serve the new version,
+  # then publish `git-aicommit` (whose dependency on it cannot resolve until
+  # then). Deliberately left as-is for now; see DEVELOPMENT.md § Releasing.
   publish:
     name: Publish to crates.io
     needs: build
