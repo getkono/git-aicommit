@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/git-aicommit"]
+members = ["crates/aicommit-core", "crates/git-aicommit"]
 resolver = "3"
 
 # Shared identity metadata. Deliberately not `version`: the binary keeps its
@@ -13,6 +13,7 @@ repository = "https://github.com/getkono/git-aicommit"
 homepage = "https://github.com/getkono/git-aicommit"
 
 [workspace.dependencies]
+aicommit-core = { version = "0.1.0", path = "crates/aicommit-core" }
 clap = { version = "4", features = ["derive"] }
 indicatif = "0.17"
 serde = { version = "1", features = ["derive"] }
