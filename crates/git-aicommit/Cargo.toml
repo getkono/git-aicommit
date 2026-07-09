@@ -13,8 +13,7 @@ repository.workspace = true
 homepage.workspace = true
 
 [dependencies]
+aicommit-core.workspace = true
 clap.workspace = true
 indicatif.workspace = true
-serde.workspace = true
-serde_json.workspace = true
 thiserror.workspace = true
