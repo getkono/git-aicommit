@@ -8,20 +8,15 @@
 //!
 //! # System dependencies
 //!
-//! None. [`build_prompt`], [`auto_select`], and [`clean_message`] are pure
-//! functions. Running a model is delegated to a [`Backend`] you supply, so this
-//! crate spawns nothing and opens nothing.
+//! Exactly one, and only if you use it: [`ClaudeCliBackend`] requires the
+//! `claude` CLI on `PATH`, and is the only code here that spawns a process.
+//! Everything else — [`build_prompt`], [`auto_select`], [`clean_message`] — is
+//! pure. Supply your own [`Backend`] and this crate needs nothing at all.
 //!
 //! # Example
 //!
 //! ```no_run
-//! use aicommit_core::{auto_select, Backend, CommitRequest, ModelChoice};
-//! # struct MyBackend;
-//! # impl Backend for MyBackend {
-//! #     fn complete(&self, _: &aicommit_core::Prompt)
-//! #         -> Result<aicommit_core::Completion, aicommit_core::BackendError> { unimplemented!() }
-//! # }
-//! # fn backend_for(_: ModelChoice) -> MyBackend { MyBackend }
+//! use aicommit_core::{auto_select, ClaudeCliBackend, CommitRequest};
 //!
 //! let request = CommitRequest {
 //!     diff: std::fs::read_to_string("change.patch")?,
@@ -29,7 +24,7 @@
 //!     ..Default::default()
 //! };
 //!
-//! let backend = backend_for(auto_select(request.diff.len(), request.file_count));
+//! let backend = ClaudeCliBackend::from_choice(auto_select(request.diff.len(), request.file_count));
 //! let generated = aicommit_core::generate_commit_message(&request, &backend)?;
 //!
 //! println!("{}", generated.message);
@@ -40,12 +35,14 @@
 //! [`Backend::complete`], then [`clean_message`].
 
 mod backend;
+mod claude;
 mod error;
 mod model;
 mod prompt;
 mod request;
 
 pub use backend::{Backend, BackendError, Completion, Usage};
+pub use claude::{ClaudeCliBackend, ClaudeError};
 pub use error::{CoreError, Result};
 pub use model::{
     ESCALATE_DIFF_BYTES, ESCALATE_FILE_COUNT, Effort, LARGE_DIFF_MODEL, ModelChoice,
