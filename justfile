@@ -12,15 +12,15 @@ fmt-check:
 
 # Run clippy lints
 clippy:
-    cargo clippy --all-targets -- -D warnings
+    cargo clippy --workspace --all-targets -- -D warnings
 
 # Auto-fix clippy lints
 clippy-fix:
-    cargo clippy --fix --allow-dirty --allow-staged --all-targets -- -D warnings
+    cargo clippy --fix --allow-dirty --allow-staged --workspace --all-targets -- -D warnings
 
 # Run the test suite
 test:
-    cargo test
+    cargo test --workspace
 
 # Install git hooks
 setup:
@@ -58,7 +58,8 @@ changelog:
     # Trim the trailing blank lines git-cliff leaves at EOF.
     printf '%s\n' "$(cat CHANGELOG.md)" > CHANGELOG.md.tmp && mv CHANGELOG.md.tmp CHANGELOG.md
 
-# Release: bump Cargo.toml version, commit, tag, and push to trigger GH Actions release workflow.
+# Release: bump the binary crate's version, commit, tag, and push to trigger GH Actions release workflow.
+# Only `git-aicommit` is versioned here; `aicommit-core` moves on its own 0.x cadence.
 # Usage: just release 0.2.0
 release version:
     #!/usr/bin/env bash
@@ -90,8 +91,9 @@ release version:
         exit 1
     fi
 
-    # Bump version in Cargo.toml
-    sed -i.bak "s/^version = \".*\"/version = \"{{version}}\"/" Cargo.toml && rm -f Cargo.toml.bak
+    # Bump version in the binary crate's manifest
+    MANIFEST="crates/git-aicommit/Cargo.toml"
+    sed -i.bak "s/^version = \".*\"/version = \"{{version}}\"/" "$MANIFEST" && rm -f "$MANIFEST.bak"
 
     # Update Cargo.lock
     cargo update --workspace --precise "{{version}}" 2>/dev/null || cargo generate-lockfile
@@ -100,7 +102,7 @@ release version:
     # not-yet-tagged commits; --tag labels that section with this version.
     git cliff --tag "$TAG" --unreleased --prepend CHANGELOG.md
 
-    git add Cargo.toml Cargo.lock CHANGELOG.md
+    git add "$MANIFEST" Cargo.lock CHANGELOG.md
     git commit -m "chore: bump version to {{version}}"
 
     # Annotated tag triggers the release workflow
