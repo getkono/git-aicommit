@@ -1,6 +1,6 @@
 [package]
 name = "git-aicommit"
-version = "1.3.5"
+version = "1.3.6"
 description = "Generate git commit messages from staged diffs using Claude."
 readme = "../../README.md"
 keywords = ["git", "commit", "ai", "claude", "cli"]

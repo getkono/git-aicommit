@@ -5,6 +5,26 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.6](https://github.com/getkono/git-aicommit/releases/tag/v1.3.6) - 2026-07-10
+
+### Features
+
+- **core:** Add the Backend trait's Claude Code CLI implementation
+- **core:** Add aicommit-core, a frontend-agnostic message generator
+
+### Bug Fixes
+
+- **build:** Resolve the git dir instead of assuming ./.git
+
+### Documentation
+
+- Document the library surface and its single system dependency
+
+### Refactor
+
+- **cli:** Generate commit messages through aicommit-core
+- Convert to a cargo workspace
+
 ## [1.3.5](https://github.com/getkono/git-aicommit/releases/tag/v1.3.5) - 2026-06-26
 
 ### Features
