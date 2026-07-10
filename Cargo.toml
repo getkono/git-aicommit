@@ -1,25 +1,27 @@
-[package]
-name = "git-aicommit"
-version = "1.3.5"
+[workspace]
+members = ["crates/aicommit-core", "crates/git-aicommit"]
+resolver = "3"
+
+# Shared identity metadata. Deliberately not `version`: the binary keeps its
+# user-facing 1.x line while the library starts fresh under 0.x semver.
+[workspace.package]
 edition = "2024"
 rust-version = "1.94"
 authors = ["Justin Chung <noreply@justinchung.net>"]
-description = "Generate git commit messages from staged diffs using Claude."
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/getkono/git-aicommit"
 homepage = "https://github.com/getkono/git-aicommit"
-readme = "README.md"
-keywords = ["git", "commit", "ai", "claude", "cli"]
-categories = ["command-line-utilities", "development-tools"]
-exclude = ["target/", "/.github", "/Cross.toml", "DEVELOPMENT.md"]
 
-[dependencies]
+[workspace.dependencies]
+aicommit-core = { version = "0.1.0", path = "crates/aicommit-core" }
 clap = { version = "4", features = ["derive"] }
 indicatif = "0.17"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
 
+# Must live at the workspace root: a `[profile.*]` table in a member manifest is
+# ignored (with only a warning), which would silently drop these from releases.
 [profile.release]
 lto = "fat"
 codegen-units = 1

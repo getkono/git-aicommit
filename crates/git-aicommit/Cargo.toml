@@ -1,0 +1,19 @@
+[package]
+name = "git-aicommit"
+version = "1.3.5"
+description = "Generate git commit messages from staged diffs using Claude."
+readme = "../../README.md"
+keywords = ["git", "commit", "ai", "claude", "cli"]
+categories = ["command-line-utilities", "development-tools"]
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+aicommit-core.workspace = true
+clap.workspace = true
+indicatif.workspace = true
+thiserror.workspace = true

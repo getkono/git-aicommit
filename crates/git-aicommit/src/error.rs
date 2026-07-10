@@ -5,6 +5,10 @@
 //! rich, context-bearing messages the tool has always produced — including the
 //! echoed `git …` command in diff errors — while the type tells you which
 //! subsystem failed.
+//!
+//! Everything here is a *frontend* failure. Anything that goes wrong while
+//! actually generating a message belongs to `aicommit_core` and arrives via
+//! [`Error::Core`].
 
 /// Crate-wide result alias.
 pub(crate) type Result<T> = std::result::Result<T, Error>;
@@ -28,9 +32,9 @@ pub(crate) enum Error {
     #[error("{0}")]
     Git(String),
 
-    /// The `claude` CLI failed to run, reported an error, or returned no message.
+    /// Generating the message failed: the backend errored, or said nothing.
     #[error("{0}")]
-    Claude(String),
+    Core(#[from] aicommit_core::CoreError),
 
     /// Reading the `-t`/`--template` file failed.
     #[error("failed to read template `{path}`: {source}")]

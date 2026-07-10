@@ -12,7 +12,7 @@ use clap::Parser;
 pub(crate) struct Args {
     /// Claude model to use (passed directly to `claude --model`).
     /// Must come before any git flags. When omitted, the model is chosen
-    /// automatically from the diff size (see `claude::auto_select`).
+    /// automatically from the diff size (see `aicommit_core::auto_select`).
     #[arg(long)]
     pub(crate) model: Option<String>,
 

@@ -1,15 +1,16 @@
-mod claude;
 mod cli;
 mod error;
 mod flags;
 mod git;
-mod prompt;
+mod metrics;
 mod spinner;
 
+use aicommit_core::{ClaudeCliBackend, CommitRequest, ModelChoice, auto_select};
 use clap::Parser;
 
 use cli::Args;
 use error::{Error, Result};
+use metrics::{fmt_size, metrics_line};
 use spinner::Spinner;
 
 fn main() {
@@ -20,10 +21,10 @@ fn main() {
     }
 }
 
-/// Orchestrate the whole flow: classify flags, read the diff, build the prompt,
-/// ask Claude for a message, then hand off to `git commit`. Each phase delegates
-/// to a focused module; this function just sequences them. `user_model` is the
-/// explicit `--model`, or `None` to auto-pick from the diff size.
+/// Orchestrate the whole flow: classify flags, read the diff, ask
+/// `aicommit_core` for a message, then hand off to `git commit`. Everything git
+/// lives here; everything about the message lives in the library. `user_model`
+/// is the explicit `--model`, or `None` to auto-pick from the diff size.
 fn run(user_model: Option<&str>, git_args: &[String]) -> Result<()> {
     // 0. Short-circuits that do no AI work.
     if flags::wants_help(git_args) {
@@ -65,24 +66,25 @@ fn run(user_model: Option<&str>, git_args: &[String]) -> Result<()> {
     //     diff is still surfaced to the model. Best-effort: empty on failure.
     let diff_stat = git::read_diff_stat(&p, &base);
 
-    // 4. Truncate the diff if it's huge, on a char boundary so we never split UTF-8.
-    let diff_for_prompt = prompt::truncate_diff(&diff);
-
-    // 4b. Resolve the model: honor an explicit `--model`, otherwise auto-pick from
-    //     the full (pre-truncation) diff size and file count. Announce an
-    //     escalation away from haiku prominently, on its own line.
-    let (model, effort): (String, Option<&str>) = match user_model {
-        Some(m) => (m.to_string(), None),
+    // 4. Resolve the model: honor an explicit `--model`, otherwise auto-pick from
+    //    the full (pre-truncation) diff size and file count. Announce an
+    //    escalation away from the cheap model prominently, on its own line.
+    let choice = match user_model {
+        Some(m) => ModelChoice::new(m),
         None => {
-            let (m, e) = claude::auto_select(diff.len(), file_count);
-            if m != "haiku" {
-                let effort_note = e.map(|lvl| format!(" (effort {lvl})")).unwrap_or_default();
+            let c = auto_select(diff.len(), file_count);
+            if c.model != aicommit_core::SMALL_DIFF_MODEL {
+                let effort_note = c
+                    .effort
+                    .map(|e| format!(" (effort {e})"))
+                    .unwrap_or_default();
                 eprintln!(
-                    "auto-selected model: {m}{effort_note} — large diff ({}, {file_count} file(s))",
+                    "auto-selected model: {}{effort_note} — large diff ({}, {file_count} file(s))",
+                    c.model,
                     fmt_size(diff.len()),
                 );
             }
-            (m.to_string(), e)
+            c
         }
     };
 
@@ -96,9 +98,9 @@ fn run(user_model: Option<&str>, git_args: &[String]) -> Result<()> {
         git::run_pre_commit_hook()?;
     }
 
-    // 6. Build the prompt. Template + instructions shape the system prompt; amend
-    //    prefixes the previous commit message to the diff.
-    let template_contents = match &p.template {
+    // 6. Gather what the library needs. Reading the template file and the
+    //    previous commit message is our I/O, not the library's.
+    let template = match &p.template {
         Some(path) => Some(
             std::fs::read_to_string(path).map_err(|source| Error::Template {
                 path: path.clone(),
@@ -107,21 +109,32 @@ fn run(user_model: Option<&str>, git_args: &[String]) -> Result<()> {
         ),
         None => None,
     };
-    let system_prompt = prompt::build_system_prompt(&p, template_contents.as_deref());
-    let prev_msg = if p.amend {
-        Some(git::previous_commit_message()?)
-    } else {
-        None
+    let request = CommitRequest {
+        diff: diff.clone(),
+        stat: diff_stat,
+        file_count,
+        prev_message: if p.amend {
+            Some(git::previous_commit_message()?)
+        } else {
+            None
+        },
+        template,
+        instructions: p.instructions.clone(),
+        amend: p.amend,
     };
-    let payload = prompt::build_stdin_payload(&diff_for_prompt, &diff_stat, prev_msg.as_deref());
 
-    // 7. Run claude in non-interactive print mode with minimal context.
+    // 7. Generate. The library builds the prompt, truncates the diff, runs the
+    //    backend, and cleans the answer.
+    let backend = ClaudeCliBackend::from_choice(choice.clone());
     let message = {
-        let sp = Spinner::new(&format!("generating commit message with claude {model}…"));
-        let generated = claude::generate(&model, effort, &system_prompt, &payload)?;
+        let sp = Spinner::new(&format!(
+            "generating commit message with claude {}…",
+            choice.model
+        ));
+        let generated = aicommit_core::generate_commit_message(&request, &backend)?;
         sp.finish(format!(
             "commit message generated  ({})",
-            generated.metrics_line()
+            metrics_line(generated.usage.as_ref())
         ));
         generated.message
     };
@@ -150,26 +163,4 @@ fn run(user_model: Option<&str>, git_args: &[String]) -> Result<()> {
         git::push()?;
     }
     Ok(())
-}
-
-/// Human-readable byte size for the auto-model notice, e.g. 48128 -> "47 KB".
-fn fmt_size(bytes: usize) -> String {
-    if bytes >= 1024 {
-        format!("{} KB", bytes / 1024)
-    } else {
-        format!("{bytes} B")
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn fmt_size_units() {
-        assert_eq!(fmt_size(0), "0 B");
-        assert_eq!(fmt_size(1023), "1023 B");
-        assert_eq!(fmt_size(1024), "1 KB");
-        assert_eq!(fmt_size(48_128), "47 KB");
-    }
 }

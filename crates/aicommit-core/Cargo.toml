@@ -1,0 +1,19 @@
+[package]
+name = "aicommit-core"
+version = "0.1.0"
+description = "Frontend-agnostic commit-message generation: build the prompt, pick the model, ask a backend."
+readme = "README.md"
+keywords = ["commit", "ai", "claude", "git", "conventional-commits"]
+categories = ["development-tools"]
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+# No `clap`, no `indicatif`, no git. See `cargo tree -p aicommit-core`.
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
