@@ -5,7 +5,8 @@ mod git;
 mod metrics;
 mod spinner;
 
-use aicommit_core::{ClaudeCliBackend, CommitRequest, ModelChoice, auto_select};
+use agent_text::ClaudeCode;
+use aicommit_core::{CommitRequest, ModelChoice, auto_select};
 use clap::Parser;
 
 use cli::Args;
@@ -13,9 +14,10 @@ use error::{Error, Result};
 use metrics::{fmt_size, metrics_line};
 use spinner::Spinner;
 
-fn main() {
+#[tokio::main(flavor = "current_thread")]
+async fn main() {
     let args = Args::parse();
-    if let Err(e) = run(args.model.as_deref(), &args.git_args) {
+    if let Err(e) = run(args.model.as_deref(), &args.git_args).await {
         eprintln!("error: {e}");
         std::process::exit(1);
     }
@@ -25,7 +27,7 @@ fn main() {
 /// `aicommit_core` for a message, then hand off to `git commit`. Everything git
 /// lives here; everything about the message lives in the library. `user_model`
 /// is the explicit `--model`, or `None` to auto-pick from the diff size.
-fn run(user_model: Option<&str>, git_args: &[String]) -> Result<()> {
+async fn run(user_model: Option<&str>, git_args: &[String]) -> Result<()> {
     // 0. Short-circuits that do no AI work.
     if flags::wants_help(git_args) {
         print!("{}", cli::HELP);
@@ -124,14 +126,17 @@ fn run(user_model: Option<&str>, git_args: &[String]) -> Result<()> {
     };
 
     // 7. Generate. The library builds the prompt, truncates the diff, runs the
-    //    backend, and cleans the answer.
-    let backend = ClaudeCliBackend::from_choice(choice.clone());
+    //    agent, and cleans the answer.
+    let mut agent = ClaudeCode::new().with_default_model(choice.model.clone());
+    if let Some(effort) = choice.effort {
+        agent = agent.with_default_effort(effort);
+    }
     let message = {
         let sp = Spinner::new(&format!(
             "generating commit message with claude {}…",
             choice.model
         ));
-        let generated = aicommit_core::generate_commit_message(&request, &backend)?;
+        let generated = aicommit_core::generate_commit_message(&request, &agent).await?;
         sp.finish(format!(
             "commit message generated  ({})",
             metrics_line(generated.usage.as_ref())

@@ -7,10 +7,11 @@
 //!
 //!     cargo run -p aicommit-core --example editor
 //!
-//! Requires the `claude` CLI on PATH. Swap `ClaudeCliBackend` for your own
-//! `Backend` and even that goes away.
+//! Requires the `claude` CLI on PATH. Swap `ClaudeCode` for your own `Agent`
+//! implementation and even that goes away.
 
-use aicommit_core::{ClaudeCliBackend, CommitRequest, auto_select, generate_commit_message};
+use agent_text::ClaudeCode;
+use aicommit_core::{CommitRequest, auto_select, generate_commit_message};
 
 const DIFF: &str = "\
 diff --git a/src/cache.rs b/src/cache.rs
@@ -24,7 +25,8 @@ diff --git a/src/cache.rs b/src/cache.rs
  }
 ";
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let request = CommitRequest {
         diff: DIFF.to_string(),
         stat: " src/cache.rs | 2 +-".to_string(),
@@ -35,14 +37,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Pick a model from the size of the change, or pass `ModelChoice::new("haiku")`.
     let choice = auto_select(request.diff.len(), request.file_count);
-    let backend = ClaudeCliBackend::from_choice(choice);
+    let mut agent = ClaudeCode::new().with_default_model(choice.model);
+    if let Some(effort) = choice.effort {
+        agent = agent.with_default_effort(effort);
+    }
 
-    let generated = generate_commit_message(&request, &backend)?;
+    let generated = generate_commit_message(&request, &agent).await?;
 
     // The message is yours. Put it in a commit box, a clipboard, a text field.
     println!("{}", generated.message);
-    if let Some(usage) = generated.usage {
-        eprintln!("({} in / {} out)", usage.input_tokens, usage.output_tokens);
+    if let Some(usage) = generated.usage
+        && let (Some(input), Some(output)) = (usage.total_input_tokens, usage.output_tokens)
+    {
+        eprintln!("({input} in / {output} out)");
     }
     Ok(())
 }

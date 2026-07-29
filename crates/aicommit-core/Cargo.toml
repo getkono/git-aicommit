@@ -1,7 +1,7 @@
 [package]
 name = "aicommit-core"
-version = "0.1.0"
-description = "Frontend-agnostic commit-message generation: build the prompt, pick the model, ask a backend."
+version = "0.2.0"
+description = "Frontend-agnostic commit-message generation over an agent-text Agent."
 readme = "README.md"
 keywords = ["commit", "ai", "claude", "git", "conventional-commits"]
 categories = ["development-tools"]
@@ -14,6 +14,9 @@ homepage.workspace = true
 
 # No `clap`, no `indicatif`, no git. See `cargo tree -p aicommit-core`.
 [dependencies]
-serde.workspace = true
-serde_json.workspace = true
+agent-text.workspace = true
 thiserror.workspace = true
+
+[dev-dependencies]
+agent-text = { workspace = true, features = ["claude-code"] }
+tokio.workspace = true

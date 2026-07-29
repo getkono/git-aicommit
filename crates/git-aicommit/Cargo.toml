@@ -14,6 +14,8 @@ homepage.workspace = true
 
 [dependencies]
 aicommit-core.workspace = true
+agent-text = { workspace = true, features = ["claude-code"] }
 clap.workspace = true
 indicatif.workspace = true
 thiserror.workspace = true
+tokio.workspace = true

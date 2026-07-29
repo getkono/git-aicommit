@@ -6,16 +6,17 @@ A Cargo workspace of two crates:
 
 | Crate | What it is |
 | --- | --- |
-| `crates/aicommit-core` | The library: builds the prompt, picks the model, runs a `Backend`. Frontend-agnostic. Never invokes `git`. |
+| `crates/aicommit-core` | The library: builds the commit request, picks the model, and runs an `agent_text::Agent`. Frontend-agnostic. Never invokes `git`. |
 | `crates/git-aicommit` | The CLI: parses git-commit flags, shells out to `git`, draws spinners, opens the editor. |
 
 The boundary is enforced by the dependency graph, not by convention — the
-library cannot reach `clap`, `indicatif`, or `git.rs`. Two invariants are worth
+library cannot reach `clap`, `indicatif`, or `git.rs`. Three invariants are worth
 re-checking after any change to the core:
 
 ```sh
-cargo tree -p aicommit-core | grep -E 'clap|indicatif'   # must find nothing
-grep -rn 'Command::new' crates/aicommit-core/src/        # must match claude.rs only
+cargo tree -p aicommit-core -e normal | grep -E 'clap|indicatif|tokio' # must find nothing
+grep -rn 'Command::new' crates/aicommit-core/src/                    # must find nothing
+cargo tree -p aicommit-core -e normal | grep agent-text              # shared agent seam
 ```
 
 The two crates are versioned independently. `git-aicommit` keeps its 1.x line;

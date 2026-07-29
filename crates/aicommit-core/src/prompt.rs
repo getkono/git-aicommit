@@ -1,11 +1,12 @@
-//! Building the inputs a backend sees: the system prompt (rules, optional
-//! template, and steering instructions) and the payload (the diff, prefixed with
-//! a changed-file inventory and the previous commit message when amending).
+//! Building the typed request an agent sees: the system prompt (rules, optional
+//! template, and steering instructions), an explicit task, and labeled context
+//! for the diff, changed-file inventory, and previous message when amending.
 //! Also owns truncation of an oversized diff.
 //!
 //! Everything here is pure: same inputs, same strings, no I/O.
 
 use crate::request::CommitRequest;
+use agent_text::{ContextItem, GenerationRequest};
 
 const SYSTEM_PROMPT: &str = "\
 You are generating a git commit message for staged changes provided as a unified diff.\n\
@@ -26,15 +27,8 @@ as a checklist: every file with a substantive change should be reflected in the 
 /// well inside a context window and token budget.
 pub const DEFAULT_MAX_DIFF_BYTES: usize = 60_000;
 
-/// The two strings a [`Backend`](crate::Backend) needs: the instructions, and
-/// the change to describe.
-#[derive(Debug, Clone)]
-pub struct Prompt {
-    /// The rules, template, and steering instructions.
-    pub system: String,
-    /// The (already truncated) diff, with its inventory and amend preamble.
-    pub payload: String,
-}
+const GENERATION_TASK: &str =
+    "Generate the git commit message described by the system rules from the supplied change.";
 
 /// Assemble the system prompt: base rules + optional template + optional
 /// steering instructions + an amend note.
@@ -61,27 +55,6 @@ pub fn build_system_prompt(req: &CommitRequest) -> String {
     prompt
 }
 
-/// The payload: the diff, prefixed with a changed-file inventory so no small
-/// change is overlooked, and with the previous commit message when amending.
-/// Empty sections are omitted. `diff` is used verbatim — truncate it first.
-pub fn build_payload(diff: &str, stat: &str, prev_msg: Option<&str>) -> String {
-    let mut payload = String::new();
-    if let Some(m) = prev_msg {
-        payload.push_str(&format!(
-            "Previous commit message:\n{}\n\n---\n\n",
-            m.trim()
-        ));
-    }
-    if !stat.trim().is_empty() {
-        payload.push_str(&format!(
-            "Changed files (git diff --stat):\n{}\n\n---\n\n",
-            stat.trim()
-        ));
-    }
-    payload.push_str(diff);
-    payload
-}
-
 /// Truncate the diff to `max_bytes` on a char boundary (so we never split a
 /// UTF-8 sequence), appending a marker when it was cut.
 pub fn truncate_diff(diff: &str, max_bytes: usize) -> String {
@@ -98,18 +71,30 @@ pub fn truncate_diff(diff: &str, max_bytes: usize) -> String {
     }
 }
 
-/// System prompt + payload, truncating the diff at [`DEFAULT_MAX_DIFF_BYTES`].
-pub fn build_prompt(req: &CommitRequest) -> Prompt {
+/// System prompt, task, and labeled context, truncating the diff at
+/// [`DEFAULT_MAX_DIFF_BYTES`].
+pub fn build_prompt(req: &CommitRequest) -> GenerationRequest {
     build_prompt_with_max(req, DEFAULT_MAX_DIFF_BYTES)
 }
 
 /// [`build_prompt`] with the truncation limit under your control.
-pub fn build_prompt_with_max(req: &CommitRequest, max_diff_bytes: usize) -> Prompt {
+pub fn build_prompt_with_max(req: &CommitRequest, max_diff_bytes: usize) -> GenerationRequest {
     let diff = truncate_diff(&req.diff, max_diff_bytes);
-    Prompt {
-        system: build_system_prompt(req),
-        payload: build_payload(&diff, &req.stat, req.prev_message.as_deref()),
+    let mut prompt =
+        GenerationRequest::new(GENERATION_TASK).with_system_prompt(build_system_prompt(req));
+    if let Some(message) = req.prev_message.as_deref() {
+        prompt
+            .context
+            .push(ContextItem::text("previous commit message", message.trim()));
     }
+    if !req.stat.trim().is_empty() {
+        prompt.context.push(ContextItem::text(
+            "changed files (git diff --stat)",
+            req.stat.trim(),
+        ));
+    }
+    prompt.context.push(ContextItem::text("unified diff", diff));
+    prompt
 }
 
 #[cfg(test)]
@@ -119,26 +104,6 @@ mod tests {
     /// Vec<String> from &str literals, for ergonomic struct literals.
     fn v(items: &[&str]) -> Vec<String> {
         items.iter().map(|s| s.to_string()).collect()
-    }
-
-    #[test]
-    fn payload_blocks() {
-        // No stat, no previous message → just the diff.
-        assert_eq!(build_payload("DIFF", "", None), "DIFF");
-
-        // The stat is prepended as a labeled inventory before the diff.
-        let with_stat = build_payload("DIFF", " file | 2 +-", None);
-        assert!(with_stat.starts_with("Changed files (git diff --stat):\nfile | 2 +-\n\n---\n\n"));
-        assert!(with_stat.ends_with("DIFF"));
-
-        // Amend prefix comes first, then the inventory, then the diff.
-        let amend = build_payload("DIFF", "stat", Some("old msg\n"));
-        assert!(amend.starts_with("Previous commit message:\nold msg\n\n---\n\n"));
-        assert!(amend.contains("Changed files (git diff --stat):\nstat\n\n---\n\n"));
-        assert!(amend.ends_with("DIFF"));
-
-        // A blank/whitespace stat is omitted entirely.
-        assert_eq!(build_payload("DIFF", "   ", None), "DIFF");
     }
 
     #[test]
@@ -202,10 +167,46 @@ mod tests {
             ..Default::default()
         };
         let p = build_prompt_with_max(&req, 10);
-        assert!(p.payload.starts_with("Changed files (git diff --stat):"));
-        assert!(p.payload.ends_with("\n\n[diff truncated]\n"));
-        assert!(p.payload.contains(&"x".repeat(10)));
-        assert!(!p.payload.contains(&"x".repeat(11)));
-        assert_eq!(p.system, build_system_prompt(&req));
+        assert_eq!(p.context.len(), 2);
+        assert_eq!(p.context[0].label, "changed files (git diff --stat)");
+        assert_eq!(p.context[1].label, "unified diff");
+        let agent_text::ContextValue::Text(diff) = &p.context[1].value else {
+            panic!("diff context must be text");
+        };
+        assert!(diff.ends_with("\n\n[diff truncated]\n"));
+        assert!(diff.contains(&"x".repeat(10)));
+        assert!(!diff.contains(&"x".repeat(11)));
+        assert_eq!(
+            p.system_prompt.as_deref(),
+            Some(build_system_prompt(&req).as_str())
+        );
+    }
+
+    #[test]
+    fn build_prompt_labels_amend_context_in_order() {
+        let req = CommitRequest {
+            diff: "DIFF".to_string(),
+            stat: "file | 2 +-".to_string(),
+            prev_message: Some("old message\n".to_string()),
+            amend: true,
+            ..Default::default()
+        };
+        let prompt = build_prompt(&req);
+        assert_eq!(
+            prompt
+                .context
+                .iter()
+                .map(|item| item.label.as_str())
+                .collect::<Vec<_>>(),
+            [
+                "previous commit message",
+                "changed files (git diff --stat)",
+                "unified diff"
+            ]
+        );
+        let agent_text::ContextValue::Text(previous) = &prompt.context[0].value else {
+            panic!("previous message context must be text");
+        };
+        assert_eq!(previous, "old message");
     }
 }
