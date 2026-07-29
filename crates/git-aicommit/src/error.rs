@@ -32,7 +32,7 @@ pub(crate) enum Error {
     #[error("{0}")]
     Git(String),
 
-    /// Generating the message failed: the backend errored, or said nothing.
+    /// Generating the message failed: the agent errored, or said nothing.
     #[error("{0}")]
     Core(#[from] aicommit_core::CoreError),
 

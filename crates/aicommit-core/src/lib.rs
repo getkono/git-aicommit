@@ -8,49 +8,50 @@
 //!
 //! # System dependencies
 //!
-//! Exactly one, and only if you use it: [`ClaudeCliBackend`] requires the
-//! `claude` CLI on `PATH`, and is the only code here that spawns a process.
-//! Everything else — [`build_prompt`], [`auto_select`], [`clean_message`] — is
-//! pure. Supply your own [`Backend`] and this crate needs nothing at all.
+//! This crate performs no I/O. Agent execution is supplied through
+//! [`agent_text::Agent`], so callers choose the concrete transport.
 //!
 //! # Example
 //!
 //! ```no_run
-//! use aicommit_core::{auto_select, ClaudeCliBackend, CommitRequest};
+//! use agent_text::ClaudeCode;
+//! use aicommit_core::{auto_select, CommitRequest};
 //!
+//! # async fn run() -> Result<(), Box<dyn std::error::Error>> {
 //! let request = CommitRequest {
 //!     diff: std::fs::read_to_string("change.patch")?,
 //!     file_count: 1,
 //!     ..Default::default()
 //! };
 //!
-//! let backend = ClaudeCliBackend::from_choice(auto_select(request.diff.len(), request.file_count));
-//! let generated = aicommit_core::generate_commit_message(&request, &backend)?;
+//! let choice = auto_select(request.diff.len(), request.file_count);
+//! let mut agent = ClaudeCode::new().with_default_model(choice.model);
+//! if let Some(effort) = choice.effort {
+//!     agent = agent.with_default_effort(effort);
+//! }
+//! let generated = aicommit_core::generate_commit_message(&request, &agent).await?;
 //!
 //! println!("{}", generated.message);
-//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! For finer control, do it by hand: [`build_prompt`], then
-//! [`Backend::complete`], then [`clean_message`].
+//! [`agent_text::Agent::generate`], then [`clean_message`].
 
-mod backend;
-mod claude;
 mod error;
 mod model;
 mod prompt;
 mod request;
 
-pub use backend::{Backend, BackendError, Completion, Usage};
-pub use claude::{ClaudeCliBackend, ClaudeError};
+pub use agent_text::{Agent, GenerationRequest, Usage};
 pub use error::{CoreError, Result};
 pub use model::{
     ESCALATE_DIFF_BYTES, ESCALATE_FILE_COUNT, Effort, LARGE_DIFF_MODEL, ModelChoice,
     SMALL_DIFF_MODEL, auto_select,
 };
 pub use prompt::{
-    DEFAULT_MAX_DIFF_BYTES, Prompt, build_payload, build_prompt, build_prompt_with_max,
-    build_system_prompt, truncate_diff,
+    DEFAULT_MAX_DIFF_BYTES, build_prompt, build_prompt_with_max, build_system_prompt, truncate_diff,
 };
 pub use request::CommitRequest;
 
@@ -59,29 +60,29 @@ pub use request::CommitRequest;
 pub struct Generated {
     /// The message: cleaned, non-empty, and safe to hand to `git commit -m`.
     pub message: String,
-    /// `None` when the backend reports no usage.
+    /// `None` when the agent reports no usage.
     pub usage: Option<Usage>,
 }
 
-/// Build the prompt for `request`, run it through `backend`, and clean up the
+/// Build the prompt for `request`, run it through `agent`, and clean up the
 /// answer.
 ///
 /// This is the whole library in one call. Cleaning and the non-empty check live
-/// here rather than in the backend, so every [`Backend`] gets them.
-pub fn generate_commit_message(
+/// here rather than in the adapter, so every [`Agent`] gets them.
+pub async fn generate_commit_message(
     request: &CommitRequest,
-    backend: &(impl Backend + ?Sized),
+    agent: &(impl Agent + ?Sized),
 ) -> Result<Generated> {
     let prompt = build_prompt(request);
-    let completion = backend.complete(&prompt).map_err(CoreError::Backend)?;
+    let generation = agent.generate(&prompt).await?;
 
-    let message = clean_message(&completion.text);
+    let message = clean_message(&generation.text);
     if message.is_empty() {
         return Err(CoreError::EmptyMessage);
     }
     Ok(Generated {
         message,
-        usage: completion.usage,
+        usage: generation.usage,
     })
 }
 
@@ -104,29 +105,46 @@ pub fn clean_message(raw: &str) -> String {
 mod tests {
     use super::*;
 
-    /// A backend that returns a canned answer, so `generate_commit_message` can
-    /// be tested without a model — and so the trait is proven implementable
-    /// from outside `claude.rs`.
-    struct StubBackend {
+    /// An agent that returns a canned answer, so `generate_commit_message` can
+    /// be tested without a model.
+    struct StubAgent {
         text: &'static str,
         usage: Option<Usage>,
     }
 
-    impl Backend for StubBackend {
-        fn complete(&self, prompt: &Prompt) -> std::result::Result<Completion, BackendError> {
-            assert!(prompt.system.contains("Conventional Commits"));
-            Ok(Completion {
+    #[agent_text::async_trait]
+    impl Agent for StubAgent {
+        async fn generate(
+            &self,
+            prompt: &GenerationRequest,
+        ) -> std::result::Result<agent_text::Generation, agent_text::Error> {
+            assert!(
+                prompt
+                    .system_prompt
+                    .as_deref()
+                    .unwrap()
+                    .contains("Conventional Commits")
+            );
+            Ok(agent_text::Generation {
                 text: self.text.to_string(),
                 usage: self.usage.clone(),
+                model: Some("stub".to_string()),
+                elapsed: std::time::Duration::ZERO,
             })
         }
     }
 
-    struct FailingBackend;
+    struct FailingAgent;
 
-    impl Backend for FailingBackend {
-        fn complete(&self, _: &Prompt) -> std::result::Result<Completion, BackendError> {
-            Err("no model today".into())
+    #[agent_text::async_trait]
+    impl Agent for FailingAgent {
+        async fn generate(
+            &self,
+            _: &GenerationRequest,
+        ) -> std::result::Result<agent_text::Generation, agent_text::Error> {
+            Err(agent_text::Error::InvalidResponse {
+                message: "no model today".to_string(),
+            })
         }
     }
 
@@ -138,29 +156,33 @@ mod tests {
         assert_eq!(clean_message("  hello  "), "hello");
     }
 
-    #[test]
-    fn generate_cleans_and_passes_usage_through() {
+    #[tokio::test]
+    async fn generate_cleans_and_passes_usage_through() {
         let usage = Usage {
-            input_tokens: 12,
-            output_tokens: 34,
+            total_input_tokens: Some(12),
+            output_tokens: Some(34),
             cost_usd: Some(0.5),
             ..Default::default()
         };
-        let backend = StubBackend {
+        let agent = StubAgent {
             text: "```\nfeat: add a thing\n```",
             usage: Some(usage.clone()),
         };
-        let g = generate_commit_message(&CommitRequest::new("DIFF"), &backend).unwrap();
+        let g = generate_commit_message(&CommitRequest::new("DIFF"), &agent)
+            .await
+            .unwrap();
         assert_eq!(g.message, "feat: add a thing");
         assert_eq!(g.usage, Some(usage));
     }
 
-    #[test]
-    fn generate_rejects_a_blank_answer() {
+    #[tokio::test]
+    async fn generate_rejects_a_blank_answer() {
         // Whitespace-only and fence-only answers both clean down to nothing.
         for text in ["   \n  ", "```\n\n```"] {
-            let backend = StubBackend { text, usage: None };
-            let err = generate_commit_message(&CommitRequest::new("DIFF"), &backend).unwrap_err();
+            let agent = StubAgent { text, usage: None };
+            let err = generate_commit_message(&CommitRequest::new("DIFF"), &agent)
+                .await
+                .unwrap_err();
             assert!(
                 matches!(err, CoreError::EmptyMessage),
                 "{text:?} -> {err:?}"
@@ -168,11 +190,12 @@ mod tests {
         }
     }
 
-    #[test]
-    fn generate_wraps_a_backend_failure() {
-        let err =
-            generate_commit_message(&CommitRequest::new("DIFF"), &FailingBackend).unwrap_err();
-        assert!(matches!(err, CoreError::Backend(_)));
+    #[tokio::test]
+    async fn generate_wraps_an_agent_failure() {
+        let err = generate_commit_message(&CommitRequest::new("DIFF"), &FailingAgent)
+            .await
+            .unwrap_err();
+        assert!(matches!(err, CoreError::Agent(_)));
         assert!(err.to_string().contains("no model today"));
     }
 }

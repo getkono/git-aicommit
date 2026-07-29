@@ -1,33 +1,6 @@
 //! Picking a model for a change, when the caller hasn't pinned one.
 
-use std::fmt;
-
-/// How much thinking to spend. A closed set, because it maps to a fixed flag
-/// vocabulary — unlike the model name, which callers may pin to anything.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum Effort {
-    Low,
-    Medium,
-    High,
-}
-
-impl Effort {
-    /// The wire form, as a backend would pass it through.
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Effort::Low => "low",
-            Effort::Medium => "medium",
-            Effort::High => "high",
-        }
-    }
-}
-
-impl fmt::Display for Effort {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
+pub use agent_text::ReasoningEffort as Effort;
 
 /// A model to run, and how hard it should think. `effort: None` means "the
 /// model's default".
@@ -107,7 +80,7 @@ mod tests {
 
     #[test]
     fn effort_wire_form() {
-        // Backends pass this through verbatim; "medium" is what the CLI expects.
+        // Agent adapters pass this through; "medium" is what Claude expects.
         assert_eq!(Effort::Medium.as_str(), "medium");
         assert_eq!(Effort::Low.to_string(), "low");
         assert_eq!(Effort::High.to_string(), "high");

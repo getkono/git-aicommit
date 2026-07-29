@@ -3,19 +3,24 @@
 use aicommit_core::Usage;
 
 /// The "12,345 in / 678 out, $0.0034" summary shown when generation finishes.
-/// Empty when the backend reported nothing, so the caller can omit the suffix.
+/// Empty when the agent reported nothing, so the caller can omit the suffix.
 pub(crate) fn metrics_line(usage: Option<&Usage>) -> String {
     let Some(u) = usage else {
         return String::new();
     };
-    let input_total = u.input_tokens + u.cache_creation_input_tokens;
-    let mut line = format!(
-        "{} in / {} out",
-        fmt_tokens(input_total),
-        fmt_tokens(u.output_tokens),
-    );
+    let mut line = match (u.total_input_tokens, u.output_tokens) {
+        (Some(input), Some(output)) => {
+            format!("{} in / {} out", fmt_tokens(input), fmt_tokens(output))
+        }
+        (Some(input), None) => format!("{} in", fmt_tokens(input)),
+        (None, Some(output)) => format!("{} out", fmt_tokens(output)),
+        (None, None) => String::new(),
+    };
     if let Some(cost) = u.cost_usd {
-        line.push_str(&format!(", {}", fmt_cost(cost)));
+        if !line.is_empty() {
+            line.push_str(", ");
+        }
+        line.push_str(&fmt_cost(cost));
     }
     line
 }
@@ -71,23 +76,30 @@ mod tests {
 
     #[test]
     fn metrics_line_shape() {
-        // Cache-creation tokens fold into the input total.
+        // agent-text reports an already-normalized total input count.
         let usage = Usage {
-            input_tokens: 12_000,
-            cache_creation_input_tokens: 345,
-            output_tokens: 678,
+            total_input_tokens: Some(12_345),
+            cached_input_tokens: Some(100),
+            cache_write_input_tokens: Some(345),
+            output_tokens: Some(678),
             cost_usd: Some(0.0034),
         };
         assert_eq!(metrics_line(Some(&usage)), "12,345 in / 678 out, $0.0034");
 
-        // A backend that prices nothing gets no cost suffix.
+        // An agent that prices nothing gets no cost suffix.
         let unpriced = Usage {
             cost_usd: None,
             ..usage
         };
         assert_eq!(metrics_line(Some(&unpriced)), "12,345 in / 678 out");
 
-        // A backend that reports nothing gets no line at all.
+        let cost_only = Usage {
+            cost_usd: Some(0.0034),
+            ..Default::default()
+        };
+        assert_eq!(metrics_line(Some(&cost_only)), "$0.0034");
+
+        // An agent that reports nothing gets no line at all.
         assert_eq!(metrics_line(None), "");
     }
 }
