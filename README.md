@@ -145,12 +145,18 @@ The message-generation logic lives in a separate library crate,
 [`aicommit-core`](crates/aicommit-core), so other frontends can reuse it — an
 editor wanting an AI-drafted message for its commit box, say. Hand it a diff and
 it hands you a string; what you do with that string is yours. It never invokes
-`git`, and its only system dependency is the `claude` CLI — behind a `Backend`
-trait you can replace.
+`git`, and it accepts any async
+[`agent_text::Agent`](https://docs.rs/agent-text/latest/agent_text/trait.Agent.html).
+The application chooses the concrete adapter; this CLI uses
+[`agent_text::ClaudeCode`](https://docs.rs/agent-text/latest/agent_text/struct.ClaudeCode.html).
 
-```rust
-let backend = ClaudeCliBackend::from_choice(auto_select(diff.len(), file_count));
-let generated = aicommit_core::generate_commit_message(&request, &backend)?;
+```rust,no_run
+let choice = auto_select(diff.len(), file_count);
+let mut agent = agent_text::ClaudeCode::new().with_default_model(choice.model);
+if let Some(effort) = choice.effort {
+    agent = agent.with_default_effort(effort);
+}
+let generated = aicommit_core::generate_commit_message(&request, &agent).await?;
 println!("{}", generated.message);
 ```
 
