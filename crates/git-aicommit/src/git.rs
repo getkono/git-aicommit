@@ -191,7 +191,7 @@ pub(crate) fn previous_commit_message() -> Result<String> {
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
-/// Run the pre-commit hook for an early check (before spending Claude tokens).
+/// Run the pre-commit hook for an early check (before spending agent tokens).
 ///
 /// `git hook run` only exists in Git ≥ 2.36; on older git it fails with
 /// "'hook' is not a git command" (issue #18). There we fall back to locating

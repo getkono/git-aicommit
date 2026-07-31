@@ -38,6 +38,10 @@ println!("{}", generated.message);
 # }
 ```
 
+`auto_select` preserves the default Claude model tiers. Frontends selecting a
+different provider can call `auto_select_with_models` with model names that
+provider understands while reusing the same diff thresholds and effort policy.
+
 See `examples/editor.rs` for a runnable version.
 
 `CommitRequest` also carries a template, steering instructions, a changed-file
