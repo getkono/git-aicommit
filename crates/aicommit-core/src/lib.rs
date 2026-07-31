@@ -48,7 +48,7 @@ pub use agent_text::{Agent, GenerationRequest, Usage};
 pub use error::{CoreError, Result};
 pub use model::{
     ESCALATE_DIFF_BYTES, ESCALATE_FILE_COUNT, Effort, LARGE_DIFF_MODEL, ModelChoice,
-    SMALL_DIFF_MODEL, auto_select,
+    SMALL_DIFF_MODEL, auto_select, auto_select_with_models,
 };
 pub use prompt::{
     DEFAULT_MAX_DIFF_BYTES, build_prompt, build_prompt_with_max, build_system_prompt, truncate_diff,

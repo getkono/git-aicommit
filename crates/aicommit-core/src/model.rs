@@ -38,14 +38,27 @@ pub const LARGE_DIFF_MODEL: &str = "sonnet";
 /// secondary changes aren't lost in the summary. Pass the *full* diff length,
 /// before any truncation.
 pub fn auto_select(diff_len: usize, file_count: usize) -> ModelChoice {
+    auto_select_with_models(diff_len, file_count, SMALL_DIFF_MODEL, LARGE_DIFF_MODEL)
+}
+
+/// Choose between caller-supplied small- and large-diff models.
+///
+/// This keeps the selection thresholds and effort policy provider-neutral while
+/// allowing a frontend to supply model names understood by its chosen agent.
+pub fn auto_select_with_models(
+    diff_len: usize,
+    file_count: usize,
+    small_model: &str,
+    large_model: &str,
+) -> ModelChoice {
     if diff_len >= ESCALATE_DIFF_BYTES || file_count >= ESCALATE_FILE_COUNT {
         ModelChoice {
-            model: LARGE_DIFF_MODEL.to_string(),
+            model: large_model.to_string(),
             effort: Some(Effort::Medium),
         }
     } else {
         ModelChoice {
-            model: SMALL_DIFF_MODEL.to_string(),
+            model: small_model.to_string(),
             effort: None,
         }
     }
@@ -79,8 +92,23 @@ mod tests {
     }
 
     #[test]
+    fn auto_select_accepts_provider_model_names() {
+        assert_eq!(
+            auto_select_with_models(0, 1, "gpt-small", "gpt-large"),
+            ModelChoice::new("gpt-small")
+        );
+        assert_eq!(
+            auto_select_with_models(ESCALATE_DIFF_BYTES, 1, "gpt-small", "gpt-large",),
+            ModelChoice {
+                model: "gpt-large".to_string(),
+                effort: Some(Effort::Medium),
+            }
+        );
+    }
+
+    #[test]
     fn effort_wire_form() {
-        // Agent adapters pass this through; "medium" is what Claude expects.
+        // Bundled agent adapters pass these stable wire names through.
         assert_eq!(Effort::Medium.as_str(), "medium");
         assert_eq!(Effort::Low.to_string(), "low");
         assert_eq!(Effort::High.to_string(), "high");

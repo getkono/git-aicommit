@@ -4,11 +4,12 @@ version = 4
 
 [[package]]
 name = "agent-text"
-version = "0.1.0"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5cf3ad01940831ac8018fdea968cd18c2acafaea70e129dd50b909c1a5b1eb69"
+checksum = "9f432625494ad4c9ecf8afa619254a212434aa311547c61ba05cab380264a6c5"
 dependencies = [
  "async-trait",
+ "semver",
  "serde",
  "serde_json",
  "tempfile",
@@ -236,6 +237,7 @@ dependencies = [
  "indicatif",
  "thiserror",
  "tokio",
+ "which",
 ]
 
 [[package]]
@@ -381,6 +383,12 @@ name = "rustversion"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f"
+
+[[package]]
+name = "semver"
+version = "1.0.28"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8a7852d02fc848982e0c167ef163aaff9cd91dc640ba85e263cb1ce46fae51cd"
 
 [[package]]
 name = "serde"
@@ -605,6 +613,15 @@ checksum = "5a6580f308b1fad9207618087a65c04e7a10bc77e02c8e84e9b00dd4b12fa0bb"
 dependencies = [
  "js-sys",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "which"
+version = "8.0.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8f3ef584124b911bcc3875c2f1472e80f24361ceb789bd1c62b3e9a3df9ff43c"
+dependencies = [
+ "libc",
 ]
 
 [[package]]

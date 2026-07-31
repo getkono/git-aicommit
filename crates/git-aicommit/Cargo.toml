@@ -1,9 +1,9 @@
 [package]
 name = "git-aicommit"
 version = "1.4.0"
-description = "Generate git commit messages from staged diffs using Claude."
+description = "Generate git commit messages from staged diffs using local AI agent CLIs."
 readme = "../../README.md"
-keywords = ["git", "commit", "ai", "claude", "cli"]
+keywords = ["git", "commit", "ai", "claude", "codex"]
 categories = ["command-line-utilities", "development-tools"]
 edition.workspace = true
 rust-version.workspace = true
@@ -14,8 +14,9 @@ homepage.workspace = true
 
 [dependencies]
 aicommit-core.workspace = true
-agent-text = { workspace = true, features = ["claude-code"] }
+agent-text = { workspace = true, features = ["claude-code", "codex"] }
 clap.workspace = true
 indicatif.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
+which.workspace = true

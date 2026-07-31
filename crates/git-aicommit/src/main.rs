@@ -1,3 +1,4 @@
+mod agent;
 mod cli;
 mod error;
 mod flags;
@@ -5,11 +6,10 @@ mod git;
 mod metrics;
 mod spinner;
 
-use agent_text::ClaudeCode;
-use aicommit_core::{CommitRequest, ModelChoice, auto_select};
+use aicommit_core::{CommitRequest, ModelChoice, auto_select_with_models};
 use clap::Parser;
 
-use cli::Args;
+use cli::{AgentChoice, Args};
 use error::{Error, Result};
 use metrics::{fmt_size, metrics_line};
 use spinner::Spinner;
@@ -17,7 +17,7 @@ use spinner::Spinner;
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
     let args = Args::parse();
-    if let Err(e) = run(args.model.as_deref(), &args.git_args).await {
+    if let Err(e) = run(args.agent, args.model.as_deref(), &args.git_args).await {
         eprintln!("error: {e}");
         std::process::exit(1);
     }
@@ -27,7 +27,11 @@ async fn main() {
 /// `aicommit_core` for a message, then hand off to `git commit`. Everything git
 /// lives here; everything about the message lives in the library. `user_model`
 /// is the explicit `--model`, or `None` to auto-pick from the diff size.
-async fn run(user_model: Option<&str>, git_args: &[String]) -> Result<()> {
+async fn run(
+    requested_agent: Option<AgentChoice>,
+    user_model: Option<&str>,
+    git_args: &[String],
+) -> Result<()> {
     // 0. Short-circuits that do no AI work.
     if flags::wants_help(git_args) {
         print!("{}", cli::HELP);
@@ -42,6 +46,8 @@ async fn run(user_model: Option<&str>, git_args: &[String]) -> Result<()> {
     }
 
     let p = flags::classify_args(git_args)?;
+    // Fail before staging or hooks when no usable local agent is installed.
+    let selected_agent = agent::select(requested_agent)?;
 
     // 1. Ensure we're in a git repo.
     {
@@ -68,14 +74,14 @@ async fn run(user_model: Option<&str>, git_args: &[String]) -> Result<()> {
     //     diff is still surfaced to the model. Best-effort: empty on failure.
     let diff_stat = git::read_diff_stat(&p, &base);
 
-    // 4. Resolve the model: honor an explicit `--model`, otherwise auto-pick from
-    //    the full (pre-truncation) diff size and file count. Announce an
-    //    escalation away from the cheap model prominently, on its own line.
+    // 4. Resolve the model. Honor an explicit `--model`, otherwise use the
+    //    selected provider's size-based tiers.
+    let (small_model, large_model) = selected_agent.model_tiers();
     let choice = match user_model {
         Some(m) => ModelChoice::new(m),
         None => {
-            let c = auto_select(diff.len(), file_count);
-            if c.model != aicommit_core::SMALL_DIFF_MODEL {
+            let c = auto_select_with_models(diff.len(), file_count, small_model, large_model);
+            if c.model != small_model {
                 let effort_note = c
                     .effort
                     .map(|e| format!(" (effort {e})"))
@@ -127,16 +133,14 @@ async fn run(user_model: Option<&str>, git_args: &[String]) -> Result<()> {
 
     // 7. Generate. The library builds the prompt, truncates the diff, runs the
     //    agent, and cleans the answer.
-    let mut agent = ClaudeCode::new().with_default_model(choice.model.clone());
-    if let Some(effort) = choice.effort {
-        agent = agent.with_default_effort(effort);
-    }
+    let agent = selected_agent.build(&choice);
     let message = {
         let sp = Spinner::new(&format!(
-            "generating commit message with claude {}…",
+            "generating commit message with {} {}…",
+            selected_agent.display_name(),
             choice.model
         ));
-        let generated = aicommit_core::generate_commit_message(&request, &agent).await?;
+        let generated = aicommit_core::generate_commit_message(&request, agent.as_ref()).await?;
         sp.finish(format!(
             "commit message generated  ({})",
             metrics_line(generated.usage.as_ref())
