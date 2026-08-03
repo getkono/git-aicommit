@@ -1,18 +1,29 @@
 //! The command-line surface: the parsed argument struct and the help text.
 
-use clap::Parser;
+use clap::{Parser, ValueEnum};
+
+/// The local agent CLI used to generate the commit message.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub(crate) enum AgentChoice {
+    Codex,
+    Claude,
+}
 
 #[derive(Parser)]
 #[command(
-    about = "Generate git commit messages from staged diffs using Claude",
+    about = "Generate git commit messages from staged diffs using a local AI agent",
     // Let `-h`/`--help` fall through to git_args so we can print our own help,
     // which documents the git-commit flags we intercept (see `HELP`).
     disable_help_flag = true
 )]
 pub(crate) struct Args {
-    /// Claude model to use (passed directly to `claude --model`).
+    /// Local agent CLI to use. When omitted, prefer Codex, then Claude.
+    #[arg(long, value_enum)]
+    pub(crate) agent: Option<AgentChoice>,
+
+    /// Model to use with the selected agent.
     /// Must come before any git flags. When omitted, the model is chosen
-    /// automatically from the diff size (see `aicommit_core::auto_select`).
+    /// automatically from the diff size.
     #[arg(long)]
     pub(crate) model: Option<String>,
 
@@ -45,15 +56,17 @@ git-aicommit {version}
 }
 
 pub(crate) const HELP: &str = "\
-git-aicommit — draft a commit message from your changes with Claude, then open `git commit`.
+git-aicommit — draft a commit message with Codex or Claude, then open `git commit`.
 
 USAGE:
-    git aicommit [--model <name>] [git commit flags] [-- <pathspec>...]
+    git aicommit [--agent <codex|claude>] [--model <name>] [git commit flags] [-- <pathspec>...]
 
 HANDLED BY git-aicommit:
-    --model <name>      Claude model to use. Must come first. When omitted, it is
-                        chosen automatically: haiku for small diffs, sonnet (with
-                        higher effort) for large or many-file ones.
+    --agent <name>      Agent CLI to use: codex or claude. Must come first. When
+                        omitted, uses codex if installed, then claude.
+    --model <name>      Model for the selected agent. Must come first. When
+                        omitted, chooses by diff size: Luna/Terra for Codex or
+                        Haiku/Sonnet for Claude.
     -V, --version       Print version, build metadata, and binary path, then exit.
     -m, --message <s>   Steer the AI with an instruction (NOT a literal message). Repeatable.
     -t, --template <f>  Make the AI follow the format/structure in file <f>.
@@ -75,5 +88,32 @@ BYPASS (no AI; runs plain `git commit`):
     --fixup, --squash, -C/--reuse-message, -c/--reedit-message, -F/--file
     (the message comes from another commit or file, so there is nothing to generate).
 
-Authentication is delegated entirely to the `claude` CLI.
+Authentication is delegated entirely to the selected `codex` or `claude` CLI.
 ";
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_agent_and_model_before_git_arguments() {
+        let args = Args::try_parse_from([
+            "git-aicommit",
+            "--agent",
+            "claude",
+            "--model",
+            "sonnet",
+            "--amend",
+        ])
+        .unwrap();
+
+        assert_eq!(args.agent, Some(AgentChoice::Claude));
+        assert_eq!(args.model.as_deref(), Some("sonnet"));
+        assert_eq!(args.git_args, ["--amend"]);
+    }
+
+    #[test]
+    fn rejects_unknown_agent() {
+        assert!(Args::try_parse_from(["git-aicommit", "--agent", "other"]).is_err());
+    }
+}

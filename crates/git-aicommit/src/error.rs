@@ -15,6 +15,17 @@ pub(crate) type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum Error {
+    /// A specifically requested local agent executable was not found.
+    #[error("{agent} executable `{binary}` was not found on PATH")]
+    AgentUnavailable {
+        agent: &'static str,
+        binary: &'static str,
+    },
+
+    /// Neither supported local agent executable was found.
+    #[error("no supported agent CLI found on PATH; install `codex` or `claude`")]
+    NoAgentAvailable,
+
     /// An intercepted git-commit flag was malformed (e.g. `-t` with no file).
     #[error("{0}")]
     Flags(String),

@@ -5,7 +5,7 @@
 #   ruby -c .github/homebrew/git-aicommit.rb
 #   brew style .github/homebrew/git-aicommit.rb
 class GitAicommit < Formula
-  desc "Generate git commit messages from staged diffs using Claude"
+  desc "Generate git commit messages using Codex or Claude"
   homepage "https://github.com/getkono/git-aicommit"
   version "__VERSION__"
   license any_of: ["MIT", "Apache-2.0"]
@@ -38,11 +38,16 @@ class GitAicommit < Formula
 
   def caveats
     <<~EOS
-      git-aicommit shells out to two tools this formula does NOT install:
-        * git           (brew install git, or use your system git)
-        * claude        the Claude Code CLI, which is not available in Homebrew.
-                        Install and authenticate it per:
+      git-aicommit shells out to git and one supported agent CLI. This formula
+      does NOT install them:
+        * git           brew install git, or use your system git
+        * codex         install and authenticate OpenAI Codex:
+                        https://developers.openai.com/codex/cli/
+        * claude        install and authenticate Claude Code:
                         https://docs.claude.com/en/docs/claude-code
+
+      Only one agent CLI is required. When both are installed, Codex is used by
+      default; pass --agent claude to override it.
 
       Invoke it as a git subcommand once installed:  git aicommit
     EOS

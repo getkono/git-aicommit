@@ -14,11 +14,12 @@ homepage = "https://github.com/getkono/git-aicommit"
 
 [workspace.dependencies]
 aicommit-core = { version = "0.2.0", path = "crates/aicommit-core" }
-agent-text = { version = "0.1.0", default-features = false }
+agent-text = { version = "0.1.1", default-features = false }
 clap = { version = "4", features = ["derive"] }
 indicatif = "0.17"
 thiserror = "2"
 tokio = { version = "1", features = ["macros", "rt"] }
+which = "8"
 
 # Must live at the workspace root: a `[profile.*]` table in a member manifest is
 # ignored (with only a warning), which would silently drop these from releases.
