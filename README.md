@@ -120,7 +120,8 @@ git aicommit --dry-run         # print the diff + generated message, then exit
 git aicommit -y                # commit the generated message directly, no editor
 ```
 
-`-y`/`--yes` skips the editor review and commits the generated message as-is. It
+`-y`/`--yes` skips the editor review and commits the generated message as-is,
+then prints that message (body included) once the commit succeeds. It
 does **not** skip hooks — use `-n`/`--no-verify` for that.
 
 **Push after committing:**
@@ -149,7 +150,7 @@ git aicommit -- --weird-filename
 
 - The prompt asks for Conventional Commits style (`feat:`, `fix:`, etc.), imperative subject ≤72 chars, optional body explaining the *why*.
 - When a commit bundles several unrelated changes, the message leads with the primary one in the subject and itemizes the rest as body bullets. A `git diff --stat` inventory of every changed file is sent alongside the diff so small or buried changes aren't dropped.
-- By default the editor opens so you can review before committing; quit with an empty message to abort. `-y`/`--yes` (or `--no-edit`) commits the generated message directly, and `--dry-run` never commits.
+- By default the editor opens so you can review before committing; quit with an empty message to abort. `-y`/`--yes` (or `--no-edit`) commits the generated message directly and echoes it afterwards, and `--dry-run` never commits.
 - No API key handling here; auth is delegated entirely to the selected local
   `codex` or `claude` CLI. If neither executable is installed, generation exits
   with an actionable error.
