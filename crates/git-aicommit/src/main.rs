@@ -166,10 +166,40 @@ async fn run(
     let commit_args = git::build_commit_args(&message, &p, early_check);
     git::final_commit(&commit_args)?;
 
-    // 10. Push, if asked. Only reached when the commit succeeded (an aborted or
+    // 10. Echo what was recorded. Only when the editor was skipped: there the
+    //     user never saw the message, and git's own summary line shows the
+    //     subject alone, so any body would be invisible.
+    if p.skip_editor() {
+        eprintln!("{}", committed_message_block(&message));
+    }
+
+    // 11. Push, if asked. Only reached when the commit succeeded (an aborted or
     //     failed `git commit` returns above), so we never push without a commit.
     if p.push {
         git::push()?;
     }
     Ok(())
+}
+
+/// The block printed after a successful editor-less commit: a blank line, a
+/// header, then the message the commit recorded. Mirrors the `--dry-run`
+/// preview so both paths present the message the same way.
+fn committed_message_block(message: &str) -> String {
+    format!("\n----- committed message -----\n\n{message}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn committed_block_shows_whole_message() {
+        assert_eq!(
+            committed_message_block("feat: add thing"),
+            "\n----- committed message -----\n\nfeat: add thing"
+        );
+        // The body is the part git's summary line drops, so it must survive.
+        let multi = "feat: add thing\n\nWhy it matters.\n- one\n- two";
+        assert!(committed_message_block(multi).ends_with(multi));
+    }
 }

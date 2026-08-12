@@ -75,7 +75,8 @@ HANDLED BY git-aicommit:
         --interactive   Interactively stage via `git add -i` first.
         --amend         Regenerate the message for an amended commit (prev message + combined diff).
         --dry-run       Print the diff and generated message, then exit without committing.
-    -y, --yes           Commit the generated message directly, without opening the editor.
+    -y, --yes           Commit the generated message directly, without opening the
+                        editor; the message is printed after the commit succeeds.
         --push          Run `git push` after the commit succeeds.
     <pathspec>...       Limit the commit (and the AI's context) to these paths.
 
