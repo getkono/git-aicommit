@@ -27,13 +27,10 @@ diff --git a/src/cache.rs b/src/cache.rs
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let request = CommitRequest {
-        diff: DIFF.to_string(),
-        stat: " src/cache.rs | 2 +-".to_string(),
-        file_count: 1,
-        instructions: vec!["mention the user-visible effect".to_string()],
-        ..Default::default()
-    };
+    let request = CommitRequest::new(DIFF)
+        .with_stat(" src/cache.rs | 2 +-")
+        .with_file_count(1)
+        .with_instructions(vec!["mention the user-visible effect".to_string()]);
 
     // Pick a model from the size of the change, or pass `ModelChoice::new("haiku")`.
     let choice = auto_select(request.diff.len(), request.file_count);

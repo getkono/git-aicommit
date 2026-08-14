@@ -13,6 +13,17 @@ use crate::flags::{Interactive, ParsedArgs};
 /// suitable commit to compare against (root commit or amending a root commit).
 const EMPTY_TREE: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 
+/// Rename-detection settings for the diff the AI reads.
+///
+/// Below git's default 50% similarity a rename is reported as a whole-file delete
+/// plus a whole-file add — the most expensive possible way to say "this moved".
+/// 30% keeps heavily-edited moves recognizable as moves, and the raised limit
+/// stops detection switching itself off on a large tree (`diff.renameLimit`
+/// defaults to 1000 files).
+///
+/// This affects only what the model is shown, never what the commit records.
+const RENAME_ARGS: [&str; 2] = ["-M30%", "-l5000"];
+
 /// Run a git command with all output discarded and report whether it succeeded.
 fn git_ok(args: &[&str]) -> bool {
     Command::new("git")
@@ -101,6 +112,7 @@ pub(crate) fn build_diff_args(p: &ParsedArgs, base: &str) -> Vec<String> {
         args.push("--cached".to_string());
     }
     args.push("--no-color".to_string());
+    args.extend(RENAME_ARGS.iter().map(|a| (*a).to_string()));
     args.push(base.to_string());
     if p.scoped() {
         args.push("--".to_string());
@@ -119,6 +131,7 @@ pub(crate) fn build_diff_stat_args(p: &ParsedArgs, base: &str) -> Vec<String> {
     }
     args.push("--stat".to_string());
     args.push("--no-color".to_string());
+    args.extend(RENAME_ARGS.iter().map(|a| (*a).to_string()));
     args.push(base.to_string());
     if p.scoped() {
         args.push("--".to_string());
@@ -515,7 +528,7 @@ mod tests {
         let plain = ParsedArgs::default();
         assert_eq!(
             build_diff_args(&plain, "HEAD"),
-            v(&["diff", "--cached", "--no-color", "HEAD"])
+            v(&["diff", "--cached", "--no-color", "-M30%", "-l5000", "HEAD"])
         );
 
         let amend = ParsedArgs {
@@ -524,7 +537,7 @@ mod tests {
         };
         assert_eq!(
             build_diff_args(&amend, "HEAD^"),
-            v(&["diff", "--cached", "--no-color", "HEAD^"])
+            v(&["diff", "--cached", "--no-color", "-M30%", "-l5000", "HEAD^"])
         );
 
         let all = ParsedArgs {
@@ -533,7 +546,7 @@ mod tests {
         };
         assert_eq!(
             build_diff_args(&all, "HEAD"),
-            v(&["diff", "--no-color", "HEAD"])
+            v(&["diff", "--no-color", "-M30%", "-l5000", "HEAD"])
         );
 
         let path = ParsedArgs {
@@ -542,7 +555,7 @@ mod tests {
         };
         assert_eq!(
             build_diff_args(&path, "HEAD"),
-            v(&["diff", "--no-color", "HEAD", "--", "f"])
+            v(&["diff", "--no-color", "-M30%", "-l5000", "HEAD", "--", "f"])
         );
 
         let all_amend = ParsedArgs {
@@ -552,7 +565,7 @@ mod tests {
         };
         assert_eq!(
             build_diff_args(&all_amend, "HEAD^"),
-            v(&["diff", "--no-color", "HEAD^"])
+            v(&["diff", "--no-color", "-M30%", "-l5000", "HEAD^"])
         );
 
         let inter = ParsedArgs {
@@ -563,7 +576,7 @@ mod tests {
         // Interactive → index diff, no path scope.
         assert_eq!(
             build_diff_args(&inter, "HEAD"),
-            v(&["diff", "--cached", "--no-color", "HEAD"])
+            v(&["diff", "--cached", "--no-color", "-M30%", "-l5000", "HEAD"])
         );
     }
 
@@ -573,7 +586,15 @@ mod tests {
         let plain = ParsedArgs::default();
         assert_eq!(
             build_diff_stat_args(&plain, "HEAD"),
-            v(&["diff", "--cached", "--stat", "--no-color", "HEAD"])
+            v(&[
+                "diff",
+                "--cached",
+                "--stat",
+                "--no-color",
+                "-M30%",
+                "-l5000",
+                "HEAD"
+            ])
         );
 
         let all = ParsedArgs {
@@ -582,7 +603,7 @@ mod tests {
         };
         assert_eq!(
             build_diff_stat_args(&all, "HEAD"),
-            v(&["diff", "--stat", "--no-color", "HEAD"])
+            v(&["diff", "--stat", "--no-color", "-M30%", "-l5000", "HEAD"])
         );
 
         let path = ParsedArgs {
@@ -591,7 +612,16 @@ mod tests {
         };
         assert_eq!(
             build_diff_stat_args(&path, "HEAD"),
-            v(&["diff", "--stat", "--no-color", "HEAD", "--", "f"])
+            v(&[
+                "diff",
+                "--stat",
+                "--no-color",
+                "-M30%",
+                "-l5000",
+                "HEAD",
+                "--",
+                "f"
+            ])
         );
     }
 }

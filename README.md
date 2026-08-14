@@ -49,7 +49,8 @@ git aicommit -a                          # include all tracked changes
 git aicommit --amend                     # redraft from previous message + diff
 git aicommit -m "call out the perf fix"  # steering instruction, NOT a literal message
 git aicommit -y --push                   # skip the editor, push after committing
-git aicommit --dry-run                   # print the message and exit
+git aicommit --dry-run                   # print exactly what would be sent, then the message
+git aicommit --no-compact                # send the diff verbatim, without summarizing
 ```
 
 `git aicommit` is a drop-in for `git commit`: unrecognized flags are forwarded
@@ -67,6 +68,25 @@ Pass `--model <name>` to pin one.
 
 `--agent` and `--model` must come before any git flags. There is no API key
 handling here; auth is delegated entirely to the local `codex` or `claude` CLI.
+
+## Large changes
+
+A big diff used to be cut off at a fixed byte cap, so every file past the cut was
+invisible to the model — on a real 84KB change that meant 13 of 16 files silently
+dropped, including a one-line security fix.
+
+Instead, the diff is summarized to fit, and **every changed file is always
+represented**. Changes that cost many bytes but carry little meaning are collapsed
+to a single line: whitespace-only reformats (including prose re-wrapping, which
+`git diff -w` does not catch), an identifier renamed across many files, relocated
+blocks, bulk data churn, lockfiles and generated artifacts, and binaries. What is
+left — the code you actually wrote — is shown in full, breadth before depth.
+
+On that same 84KB change the model receives 1.4KB and still names all five
+distinct edits. `--dry-run` prints every decision; `--no-compact` turns it off.
+
+The analysis is purely lexical, so it works the same on prose, CSV, LaTeX or
+configuration as it does on source code.
 
 ## Notes
 

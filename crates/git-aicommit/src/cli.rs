@@ -74,7 +74,12 @@ HANDLED BY git-aicommit:
     -p, --patch         Interactively stage hunks first, then summarize what you staged.
         --interactive   Interactively stage via `git add -i` first.
         --amend         Regenerate the message for an amended commit (prev message + combined diff).
-        --dry-run       Print the diff and generated message, then exit without committing.
+        --dry-run       Print everything that would be sent — git commands, model,
+                        system prompt, every context item, and a per-file table of
+                        what the summarizer kept and why — then the generated
+                        message, and exit without committing.
+        --no-compact    Send the diff verbatim instead of summarizing it to fit the
+                        context budget. Large changes may then be truncated.
     -y, --yes           Commit the generated message directly, without opening the
                         editor; the message is printed after the commit succeeds.
         --push          Run `git push` after the commit succeeds.

@@ -13,8 +13,14 @@ repository = "https://github.com/getkono/git-aicommit"
 homepage = "https://github.com/getkono/git-aicommit"
 
 [workspace.dependencies]
-aicommit-core = { version = "0.2.0", path = "crates/aicommit-core" }
+aicommit-core = { version = "0.3.0", path = "crates/aicommit-core" }
 agent-text = { version = "0.1.1", default-features = false }
+# Diff model and unified-diff parser for the context compressor. Pinned to a git
+# rev until karet 0.6.0 (which carries the parser-completeness fixes this relies
+# on) reaches crates.io; swap to `version = "0.6"` before merging.
+# https://github.com/getkono/karet/pull/218
+karet-diff = { git = "https://github.com/getkono/karet", rev = "55f0839086c03ebc54543e79276d7cbf071953b5", default-features = false }
+karet-filetype = { git = "https://github.com/getkono/karet", rev = "55f0839086c03ebc54543e79276d7cbf071953b5", default-features = false }
 clap = { version = "4", features = ["derive"] }
 indicatif = "0.17"
 thiserror = "2"

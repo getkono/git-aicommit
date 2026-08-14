@@ -30,10 +30,31 @@ pub const DEFAULT_MAX_DIFF_BYTES: usize = 60_000;
 const GENERATION_TASK: &str =
     "Generate the git commit message described by the system rules from the supplied change.";
 
+/// Explains the annotations [`crate::compress_diff`] leaves in place of a body.
+///
+/// Added only when the diff was actually compressed, so an ordinary small change
+/// gets exactly the prompt it always did.
+const COMPRESSION_LEGEND: &str = "\
+\n\nThe diff has been summarized to fit a size budget. EVERY changed file is \
+listed, but some bodies are replaced by a `#` annotation:\n\
+- `# whitespace-only reformat` — the text is identical ignoring whitespace \
+(reindentation or re-wrapping). Describe it as formatting, not as a change in behavior.\n\
+- `# s/<old>/<new>/ xN` — the same replacement, N times; the `# repeated edits` \
+block at the top gives the totals. Describe it once, not per file.\n\
+- `# relocated content only` — the lines moved unchanged; see `# relocated blocks`.\n\
+- `# bulk data change` / `# generated file` / `# binary file changed` — the body \
+is omitted as noise; mention it briefly if at all.\n\
+- `# context omitted`, `# … N more … lines`, `# hunk headers only`, \
+`# body omitted` — the change is larger than shown.\n\
+Treat every listed file as part of the commit even when its body was omitted.";
+
 /// Assemble the system prompt: base rules + optional template + optional
 /// steering instructions + an amend note.
 pub fn build_system_prompt(req: &CommitRequest) -> String {
     let mut prompt = String::from(SYSTEM_PROMPT);
+    if req.compressed {
+        prompt.push_str(COMPRESSION_LEGEND);
+    }
     if let Some(tmpl) = &req.template {
         prompt.push_str(
             "\n\nThe commit message MUST follow this template exactly. \
@@ -131,6 +152,39 @@ mod tests {
             ..Default::default()
         };
         assert!(build_system_prompt(&req).contains("revises an existing commit"));
+    }
+
+    #[test]
+    fn the_compression_legend_appears_only_when_needed() {
+        // An uncompressed diff must get byte-for-byte the prompt it always did,
+        // so the common small-commit path cannot regress.
+        let plain = CommitRequest::default();
+        assert_eq!(build_system_prompt(&plain), SYSTEM_PROMPT);
+
+        let compressed = CommitRequest::default().compressed(true);
+        let s = build_system_prompt(&compressed);
+        assert!(s.starts_with(SYSTEM_PROMPT));
+        assert!(s.contains("whitespace-only reformat"));
+        assert!(s.contains("s/<old>/<new>/ xN"));
+        // The completeness instruction is the point of the legend.
+        assert!(s.contains("Treat every listed file as part of the commit"));
+    }
+
+    #[test]
+    fn the_legend_precedes_the_user_blocks() {
+        // Steering instructions are documented as the highest priority, so they
+        // must still come last.
+        let req = CommitRequest {
+            instructions: v(&["focus on perf"]),
+            template: Some("TEMPLATE BODY".to_string()),
+            compressed: true,
+            ..Default::default()
+        };
+        let s = build_system_prompt(&req);
+        let legend = s.find("whitespace-only reformat").expect("legend present");
+        let template = s.find("TEMPLATE BODY").expect("template present");
+        let instructions = s.find("focus on perf").expect("instructions present");
+        assert!(legend < template && template < instructions);
     }
 
     #[test]

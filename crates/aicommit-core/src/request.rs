@@ -9,7 +9,11 @@
 ///
 /// Every field but `diff` is optional in practice — `Default` gives you a bare
 /// request, and [`CommitRequest::new`] is the common starting point.
+///
+/// Marked `#[non_exhaustive]`: build one with `..Default::default()` (or
+/// [`CommitRequest::new`]) so later fields do not break you.
 #[derive(Debug, Clone, Default)]
+#[non_exhaustive]
 pub struct CommitRequest {
     /// The unified diff to describe, in full. Do not pre-truncate: the model is
     /// selected from the true size, and the prompt builder truncates afterwards.
@@ -38,6 +42,13 @@ pub struct CommitRequest {
     /// Whether this revises an existing commit. Adds an explanatory note to the
     /// system prompt; pair it with [`CommitRequest::prev_message`].
     pub amend: bool,
+
+    /// Whether [`diff`](Self::diff) was produced by [`crate::compress_diff`] and
+    /// therefore contains `#` annotations in place of some bodies.
+    ///
+    /// When set, the system prompt gains a short legend explaining the notation.
+    /// Leave it false for a verbatim diff so the prompt is unchanged.
+    pub compressed: bool,
 }
 
 impl CommitRequest {
@@ -47,5 +58,49 @@ impl CommitRequest {
             diff: diff.into(),
             ..Default::default()
         }
+    }
+
+    /// Set the changed-file inventory (the shape of `git diff --stat`).
+    #[must_use]
+    pub fn with_stat(mut self, stat: impl Into<String>) -> Self {
+        self.stat = stat.into();
+        self
+    }
+
+    /// Set how many files the change touches, which feeds model selection.
+    #[must_use]
+    pub fn with_file_count(mut self, file_count: usize) -> Self {
+        self.file_count = file_count;
+        self
+    }
+
+    /// Set the message being revised, and mark the request as an amend.
+    #[must_use]
+    pub fn amending(mut self, prev_message: impl Into<String>) -> Self {
+        self.prev_message = Some(prev_message.into());
+        self.amend = true;
+        self
+    }
+
+    /// Set the *contents* of a template the message must follow.
+    #[must_use]
+    pub fn with_template(mut self, template: Option<String>) -> Self {
+        self.template = template;
+        self
+    }
+
+    /// Set the free-form steering instructions to prioritize.
+    #[must_use]
+    pub fn with_instructions(mut self, instructions: Vec<String>) -> Self {
+        self.instructions = instructions;
+        self
+    }
+
+    /// Declare that the diff came from [`crate::compress_diff`], so the system
+    /// prompt explains the `#` annotations it contains.
+    #[must_use]
+    pub fn compressed(mut self, compressed: bool) -> Self {
+        self.compressed = compressed;
+        self
     }
 }

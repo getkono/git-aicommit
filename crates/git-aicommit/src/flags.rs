@@ -20,6 +20,9 @@ pub(crate) struct ParsedArgs {
     pub(crate) amend: bool,
     pub(crate) interactive: Option<Interactive>,
     pub(crate) dry_run: bool,
+    /// Send the diff verbatim instead of compressing it to fit the budget (our own
+    /// `--no-compact` flag, so it is never forwarded to `git commit`).
+    pub(crate) no_compact: bool,
     /// Run `git push` after a successful commit (our own flag, not `git commit`'s).
     pub(crate) push: bool,
     /// Commit the generated message directly, skipping the editor review (our own
@@ -142,6 +145,9 @@ pub(crate) fn classify_args(git_args: &[String]) -> Result<ParsedArgs> {
                 "patch" => p.interactive = Some(Interactive::Patch),
                 "interactive" => p.interactive = Some(Interactive::Interactive),
                 "dry-run" => p.dry_run = true,
+                // Our own flag: send the diff verbatim. Not a `git commit` flag,
+                // so it is intercepted and never forwarded.
+                "no-compact" => p.no_compact = true,
                 // Our own flag: `git push` after a successful commit. Not a
                 // `git commit` flag, so it is intercepted and never forwarded.
                 "push" => p.push = true,
@@ -387,6 +393,19 @@ mod tests {
         assert_eq!(parse(&["-s"]).passthrough, v(&["-s"]));
         assert_eq!(parse(&["--signoff"]).passthrough, v(&["--signoff"]));
         assert!(parse(&["--dry-run"]).dry_run);
+    }
+
+    #[test]
+    fn no_compact_flag() {
+        let p = parse(&["--no-compact"]);
+        assert!(p.no_compact);
+        // Ours; it must not leak through to `git commit`.
+        assert!(p.passthrough.is_empty());
+        assert!(!parse(&[]).no_compact);
+        // Travels alongside other flags without being forwarded.
+        let p = parse(&["-a", "--no-compact", "--dry-run"]);
+        assert!(p.all && p.no_compact && p.dry_run);
+        assert_eq!(p.passthrough, v(&["-a"]));
     }
 
     #[test]
