@@ -1,12 +1,16 @@
 mod agent;
 mod cli;
+mod debug;
 mod error;
 mod flags;
 mod git;
 mod metrics;
 mod spinner;
 
-use aicommit_core::{CommitRequest, ModelChoice, auto_select_with_models};
+use aicommit_core::{
+    CommitRequest, CompressOptions, CompressionReport, ModelChoice, auto_select_with_models,
+    compress_diff,
+};
 use clap::Parser;
 
 use cli::{AgentChoice, Args};
@@ -117,21 +121,48 @@ async fn run(
         ),
         None => None,
     };
-    let request = CommitRequest {
-        diff: diff.clone(),
-        stat: diff_stat,
-        file_count,
-        prev_message: if p.amend {
-            Some(git::previous_commit_message()?)
-        } else {
-            None
-        },
-        template,
-        instructions: p.instructions.clone(),
-        amend: p.amend,
-    };
 
-    // 7. Generate. The library builds the prompt, truncates the diff, runs the
+    // 6b. Fit the diff to the budget. Unlike truncation this keeps every file, so
+    //     a small edit at the end of a large change is still described. The
+    //     library reports what it did, for `--dry-run`.
+    let (context_diff, compression) = if p.no_compact {
+        (diff.clone(), None)
+    } else {
+        let (text, report) = compress_diff(&diff, &CompressOptions::default());
+        announce_compression(&report);
+        (text, Some(report))
+    };
+    let was_compressed = compression.as_ref().is_some_and(|r| r.compressed);
+
+    let mut request = CommitRequest::new(context_diff)
+        .with_stat(diff_stat)
+        .with_file_count(file_count)
+        .with_template(template)
+        .with_instructions(p.instructions.clone())
+        .compressed(was_compressed);
+    if p.amend {
+        request = request.amending(git::previous_commit_message()?);
+    }
+
+    // 7. Show exactly what would be sent, when asked. Printed before generation so
+    //    it is visible even if the agent then fails.
+    if p.dry_run {
+        let effort = choice
+            .effort
+            .map(|e| format!(" (effort {e})"))
+            .unwrap_or_default();
+        println!(
+            "{}",
+            debug::report(
+                &[diff_args.clone(), git::build_diff_stat_args(&p, &base)],
+                &format!("{} {}{effort}", selected_agent.display_name(), choice.model),
+                &aicommit_core::build_prompt(&request),
+                compression.as_ref(),
+            )
+        );
+    }
+
+    // 8. Generate. The library builds the prompt, truncates the diff, runs the
     //    agent, and cleans the answer.
     let agent = selected_agent.build(&choice);
     let message = {
@@ -148,9 +179,9 @@ async fn run(
         generated.message
     };
 
-    // 8. Dry run: show the diff and message, then stop before committing.
+    // 9. Dry run: the request was already printed above; show the message the
+    //    agent produced from it, then stop before committing.
     if p.dry_run {
-        println!("{diff}");
         println!("\n----- generated commit message -----\n");
         println!("{message}");
         return Ok(());
@@ -179,6 +210,20 @@ async fn run(
         git::push()?;
     }
     Ok(())
+}
+
+/// Tell the user when the diff was summarized, so a surprising message is never
+/// traceable to something they could not see. Silent when nothing was collapsed.
+fn announce_compression(report: &CompressionReport) {
+    if !report.compressed || report.bytes_saved() == 0 {
+        return;
+    }
+    eprintln!(
+        "summarized the diff: {} → {} ({} file(s) kept; --dry-run shows every decision)",
+        fmt_size(report.original_bytes),
+        fmt_size(report.compressed_bytes),
+        report.files.len(),
+    );
 }
 
 /// The block printed after a successful editor-less commit: a blank line, a
