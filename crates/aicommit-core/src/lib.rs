@@ -18,11 +18,8 @@
 //! use aicommit_core::{auto_select, CommitRequest};
 //!
 //! # async fn run() -> Result<(), Box<dyn std::error::Error>> {
-//! let request = CommitRequest {
-//!     diff: std::fs::read_to_string("change.patch")?,
-//!     file_count: 1,
-//!     ..Default::default()
-//! };
+//! let request = CommitRequest::new(std::fs::read_to_string("change.patch")?)
+//!     .with_file_count(1);
 //!
 //! let choice = auto_select(request.diff.len(), request.file_count);
 //! let mut agent = ClaudeCode::new().with_default_model(choice.model);
