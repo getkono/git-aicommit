@@ -2,6 +2,9 @@
 default:
     @just --list
 
+install:
+    cargo install --path crates/git-aicommit
+
 # Format all code
 fmt:
     cargo fmt --all
