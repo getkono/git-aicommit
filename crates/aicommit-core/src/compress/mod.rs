@@ -88,11 +88,17 @@ pub struct CompressOptions {
     pub max_bytes: usize,
 }
 
+impl CompressOptions {
+    /// Options with a byte budget of `max_bytes`.
+    #[must_use]
+    pub fn new(max_bytes: usize) -> Self {
+        Self { max_bytes }
+    }
+}
+
 impl Default for CompressOptions {
     fn default() -> Self {
-        Self {
-            max_bytes: crate::DEFAULT_MAX_DIFF_BYTES,
-        }
+        Self::new(crate::DEFAULT_MAX_DIFF_BYTES)
     }
 }
 
