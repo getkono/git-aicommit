@@ -39,12 +39,17 @@
 //! For finer control, do it by hand: [`build_prompt`], then
 //! [`agent_text::Agent::generate`], then [`clean_message`].
 
+mod compress;
 mod error;
 mod model;
 mod prompt;
 mod request;
 
 pub use agent_text::{Agent, GenerationRequest, Usage};
+pub use compress::{
+    CompressOptions, CompressionReport, Detail, FileReport, MovedBlock, SubstitutionCluster,
+    compress_diff,
+};
 pub use error::{CoreError, Result};
 pub use model::{
     ESCALATE_DIFF_BYTES, ESCALATE_FILE_COUNT, Effort, LARGE_DIFF_MODEL, ModelChoice,

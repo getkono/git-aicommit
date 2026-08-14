@@ -1,6 +1,6 @@
 [package]
 name = "aicommit-core"
-version = "0.2.0"
+version = "0.3.0"
 description = "Frontend-agnostic commit-message generation over an agent-text Agent."
 readme = "README.md"
 keywords = ["commit", "ai", "claude", "git", "conventional-commits"]
@@ -13,8 +13,13 @@ repository.workspace = true
 homepage.workspace = true
 
 # No `clap`, no `indicatif`, no git. See `cargo tree -p aicommit-core`.
+# `karet-diff` and `karet-filetype` are headless and pure: the former's ratatui
+# painters are behind its `view` feature (off), the latter has no dependencies at
+# all. Neither performs I/O, so the no-git/no-I/O boundary still holds.
 [dependencies]
 agent-text.workspace = true
+karet-diff.workspace = true
+karet-filetype.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
